@@ -1,0 +1,281 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions           Session[]
+  watchlists         Watchlist[]
+  watchProgress      WatchProgress[]
+  userAddons         UserAddon[]
+  requestLogs        AddonRequestLog[]
+  playbackSessions   PlaybackSession[]
+  passwordResets     PasswordResetToken[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Title {
+  id            String      @id @default(cuid())
+  externalId    String      @unique
+  title         String
+  originalTitle String?
+  overview      String?
+  posterPath    String?
+  backdropPath  String?
+  releaseDate   DateTime?
+  contentType   ContentType @default(MOVIE)
+  genres        String      @default("[]")
+  rating        Float?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  seasons          Season[]
+  videoSources     VideoSource[]
+  subtitles        SubtitleTrack[]
+  watchlists       Watchlist[]
+  watchProgress    WatchProgress[]
+  providerItems    ProviderItem[]
+  playbackSessions PlaybackSession[]
+
+  @@index([contentType])
+  @@index([title])
+}
+
+model Season {
+  id           String    @id @default(cuid())
+  titleId      String
+  seasonNumber Int
+  createdAt    DateTime  @default(now())
+  title        Title     @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  episodes     Episode[]
+
+  @@unique([titleId, seasonNumber])
+}
+
+model Episode {
+  id            String          @id @default(cuid())
+  seasonId      String
+  episodeNumber Int
+  name          String
+  overview      String?
+  runtime       Int?
+  createdAt     DateTime        @default(now())
+  season        Season          @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  videoSources  VideoSource[]
+  subtitles     SubtitleTrack[]
+  watchProgress WatchProgress[]
+  playbackSessions PlaybackSession[]
+
+  @@unique([seasonId, episodeNumber])
+}
+
+model Provider {
+  id        String   @id @default(cuid())
+  name      String
+  type      String
+  baseUrl   String?
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  items   ProviderItem[]
+  sources VideoSource[]
+}
+
+model ProviderItem {
+  id         String   @id @default(cuid())
+  providerId String
+  externalId String
+  titleId    String
+  metadata   Json
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  title      Title    @relation(fields: [titleId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, externalId])
+  @@index([titleId])
+}
+
+model VideoSource {
+  id          String      @id @default(cuid())
+  titleId     String
+  episodeId   String?
+  providerId  String?
+  sourceUrl   String
+  format      String?
+  quality     String?
+  legalStatus LegalStatus @default(PENDING_REVIEW)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  title       Title       @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  episode     Episode?    @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  provider    Provider?   @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  licenses    SourceLicense[]
+  playbackSessions PlaybackSession[]
+
+  @@index([titleId])
+  @@index([episodeId])
+  @@index([legalStatus])
+}
+
+model SourceLicense {
+  id                String      @id @default(cuid())
+  videoSourceId     String
+  rightsHolder      String
+  licenseType       String
+  territory         String?
+  validFrom         DateTime?
+  validUntil        DateTime?
+  evidenceReference String?
+  status            LegalStatus @default(PENDING_REVIEW)
+  videoSource       VideoSource @relation(fields: [videoSourceId], references: [id], onDelete: Cascade)
+}
+
+model SubtitleTrack {
+  id        String   @id @default(cuid())
+  titleId   String
+  episodeId String?
+  language  String
+  format    String   @default("vtt")
+  url       String
+  title     Title    @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  episode   Episode? @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+
+  @@index([titleId])
+  @@index([episodeId])
+}
+
+model UserAddon {
+  id                   String           @id @default(cuid())
+  userId               String
+  name                 String
+  manifestUrlEncrypted String
+  version              String?
+  description          String?
+  enabled              Boolean          @default(true)
+  priority             Int              @default(0)
+  installedAt          DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  lastCheckedAt        DateTime?
+  healthStatus         String           @default("UNKNOWN")
+  user                 User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requestLogs          AddonRequestLog[]
+
+  @@index([userId])
+}
+
+model AddonRequestLog {
+  id           String    @id @default(cuid())
+  userId       String
+  addonId      String
+  resource     String
+  statusCode   Int?
+  responseTime Int?
+  errorCode    String?
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addon        UserAddon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([addonId])
+}
+
+model AddonHealthCheck {
+  id           String   @id @default(cuid())
+  addonId      String
+  status       String
+  responseTime Int?
+  errorCode    String?
+  createdAt    DateTime @default(now())
+
+  @@index([addonId])
+}
+
+model WatchProgress {
+  id              String   @id @default(cuid())
+  userId          String
+  titleId         String
+  episodeId       String?
+  positionSeconds Int      @default(0)
+  durationSeconds Int      @default(0)
+  completed       Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title           Title    @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  episode         Episode? @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, titleId, episodeId])
+  @@index([userId])
+}
+
+model Watchlist {
+  id        String   @id @default(cuid())
+  userId    String
+  titleId   String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     Title    @relation(fields: [titleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, titleId])
+  @@index([userId])
+}
+
+model PlaybackSession {
+  id        String       @id @default(cuid())
+  userId    String
+  titleId   String
+  episodeId String?
+  sourceId  String?
+  startedAt DateTime     @default(now())
+  endedAt   DateTime?
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     Title        @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  episode   Episode?     @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+  source    VideoSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+}
+
+enum ContentType {
+  MOVIE
+  SERIES
+  ANIME
+  DOCUMENTARY
+}
+
+enum LegalStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  EXPIRED
+}

@@ -1,0 +1,29 @@
+{
+  "name": "cinewave",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm dev --recursive",
+    "build": "pnpm build --recursive",
+    "lint": "pnpm -r run lint",
+    "format": "prettier --write .",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "prisma db seed",
+    "test": "pnpm -r run test"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "prisma": "^5.22.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.0.0"
+  },
+  "prisma": {
+    "seed": "npx tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "expo-video": "~58.0.14"
+  }
+}

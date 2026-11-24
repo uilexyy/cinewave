@@ -1,0 +1,32 @@
+{
+  "name": "@cinewave/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx tests/auth.test.ts && tsx tests/catalog.test.ts && tsx tests/userData.test.ts && tsx tests/addons.test.ts && tsx tests/security.test.ts"
+  },
+  "dependencies": {
+    "@cinewave/api-client": "workspace:*",
+    "@cinewave/config": "workspace:*",
+    "@cinewave/shared": "workspace:*",
+    "@cinewave/types": "workspace:*",
+    "@cinewave/validation": "workspace:*",
+    "@prisma/client": "^5.22.0",
+    "@types/bcryptjs": "^3.0.0",
+    "bcryptjs": "^3.0.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint-config-next": "^16.4.6",
+    "typescript": "^5.9.3"
+  }
+}
