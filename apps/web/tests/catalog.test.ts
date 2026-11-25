@@ -1,3 +1,4 @@
+process.env.RATE_LIMIT_DISABLED = "true";
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 import { GET as homeHandler } from "../app/api/v1/catalog/home/route";

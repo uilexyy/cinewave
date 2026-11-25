@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { RegisterSchema } from "@cinewave/validation";
 import { prisma } from "@/lib/db";
 import { hashPassword, createSession } from "@/lib/auth";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
+  const rl = await enforceRateLimit(req, RATE_LIMITS.register);
+  if (rl) return rl;
+
   try {
     const body = await req.json();
     const parsed = RegisterSchema.safeParse(body);

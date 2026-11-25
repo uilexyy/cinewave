@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { ResetPasswordSchema } from "@cinewave/validation";
 import { prisma } from "@/lib/db";
 import { hashToken, hashPassword } from "@/lib/auth";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
+  const rl = await enforceRateLimit(req, RATE_LIMITS.api);
+  if (rl) return rl;
+
   try {
     const body = await req.json();
     const parsed = ResetPasswordSchema.safeParse(body);

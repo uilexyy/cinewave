@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { apiFetch, apiPatch, apiDelete } from "@/services/api";
 
 interface HistoryItem {
@@ -17,21 +18,25 @@ interface HistoryItem {
 export default function HistoryPage() {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   async function load() {
     try {
       const data = await apiFetch<HistoryItem[]>("history");
       setItems(data);
     } catch {
-      window.location.href = "/login";
+      router.push("/login");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    apiFetch<HistoryItem[]>("history")
+      .then(setItems)
+      .catch(() => router.push("/login"))
+      .finally(() => setLoading(false));
+  }, [router]);
 
   async function markCompleted(progressId: string) {
     try {
@@ -59,7 +64,7 @@ export default function HistoryPage() {
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <header style={{ padding: "12px 20px", background: "var(--surface)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: 24, fontWeight: 800 }}>Watch History</h1>
-        <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => window.location.href = "/home"}>
+        <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => router.push("/home")}>
           Home
         </button>
       </header>

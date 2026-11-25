@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { apiPost } from "@/services/api";
+
+interface RegisterResponse {
+  token?: string;
+  user?: { id: string; name: string; email: string };
+}
 
 export default function RegisterPage() {
   const [name, setName] = useState("");
@@ -10,17 +16,18 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const data = await apiPost<{ token: string; user: any }>("auth/register", { name, email, password });
+      const data = await apiPost<RegisterResponse>("auth/register", { name, email, password });
       if (data.token) localStorage.setItem("token", data.token);
-      window.location.href = "/home";
-    } catch (err: any) {
-      setError(err.message || "Registration failed");
+      router.push("/home");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
       setLoading(false);
     }

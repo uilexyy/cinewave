@@ -2,25 +2,32 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { apiPost } from "@/services/api";
+
+interface LoginResponse {
+  token?: string;
+  user?: { id: string; name: string; email: string };
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const data = await apiPost<{ token: string; user: any }>("auth/login", { email, password });
+      const data = await apiPost<LoginResponse>("auth/login", { email, password });
       // Token is also set as cookie by backend; store in localStorage for convenience
       if (data.token) localStorage.setItem("token", data.token);
-      window.location.href = "/home";
-    } catch (err: any) {
-      setError(err.message || "Login failed");
+      router.push("/home");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
     }

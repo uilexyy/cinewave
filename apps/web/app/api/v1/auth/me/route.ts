@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractTokenFromRequest, validateSession } from "@/lib/auth";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 export async function GET(req: NextRequest) {
+  const rl = await enforceRateLimit(req, RATE_LIMITS.api);
+  if (rl) return rl;
+
   try {
     const token = extractTokenFromRequest(req);
     if (!token) {

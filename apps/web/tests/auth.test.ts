@@ -1,3 +1,4 @@
+process.env.RATE_LIMIT_DISABLED = "true";
 import assert from "node:assert/strict";
 import { POST as registerHandler } from "../app/api/v1/auth/register/route";
 import { POST as loginHandler } from "../app/api/v1/auth/login/route";

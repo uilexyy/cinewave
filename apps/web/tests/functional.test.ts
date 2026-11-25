@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 import { POST as registerHandler } from "../app/api/v1/auth/register/route";
-import { POST as loginHandler } from "../app/api/v1/auth/login/route";
 import { POST as addonsPost } from "../app/api/v1/addons/route";
 import { GET as addonsGet } from "../app/api/v1/addons/route";
 import { POST as previewHandler } from "../app/api/v1/addons/preview/route";
@@ -14,11 +13,8 @@ import { GET as titleDetail } from "../app/api/v1/catalog/title/[id]/route";
 import { GET as playbackHandler } from "../app/api/v1/playback/[titleId]/route";
 import { POST as watchlistPost } from "../app/api/v1/watchlist/route";
 import { GET as watchlistGet } from "../app/api/v1/watchlist/route";
-import { DELETE as watchlistDelete } from "../app/api/v1/watchlist/route";
 import { POST as historyPost } from "../app/api/v1/history/route";
 import { GET as historyGet } from "../app/api/v1/history/route";
-import { PATCH as historyPatch } from "../app/api/v1/history/route";
-import { DELETE as historyDelete } from "../app/api/v1/history/route";
 import { prisma } from "../lib/db";
 
 const CINEMETA_MANIFEST = "https://v3-cinemeta.strem.io/manifest.json";

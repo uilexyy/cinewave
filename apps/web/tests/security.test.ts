@@ -1,3 +1,4 @@
+process.env.RATE_LIMIT_DISABLED = "true";
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 import { isPrivateIp, isBlockedHost } from "../lib/ssrf-guard";

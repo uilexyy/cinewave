@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { apiFetch } from "@/services/api";
 
 interface CatalogItem {
@@ -19,16 +19,17 @@ interface CatalogItem {
 function SearchContent() {
   const searchParams = useSearchParams();
   const q = searchParams.get("q") || "";
+  const router = useRouter();
   const [query, setQuery] = useState(q);
   const [results, setResults] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!q) {
-      setResults([]);
+      queueMicrotask(() => setResults([]));
       return;
     }
-    setLoading(true);
+    queueMicrotask(() => setLoading(true));
     apiFetch<{ results: CatalogItem[] }>(`catalog/search?q=${encodeURIComponent(q)}`)
       .then((data) => setResults(data.results || []))
       .catch(() => setResults([]))
@@ -37,7 +38,7 @@ function SearchContent() {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (query.trim()) window.location.href = `/search?q=${encodeURIComponent(query)}`;
+    if (query.trim()) router.push(`/search?q=${encodeURIComponent(query)}`);
   }
 
   return (
@@ -71,13 +72,19 @@ function SearchContent() {
         {!loading && q && results.length === 0 && (
           <div className="empty-state">
             <h3>No Results</h3>
-            <p>No matches found for "{q}".</p>
+            <p>No matches found for &quot;{q}&quot;.</p>
           </div>
         )}
         {!loading && results.length > 0 && (
           <div className="grid grid-5">
             {results.map((item) => (
-              <div key={`${item.addonName}-${item.id}`} className="poster-card">
+              <Link
+                key={`${item.type}:${item.id}`}
+                href={`/title/${encodeURIComponent(item.id)}?type=${encodeURIComponent(item.type)}`}
+                className="poster-card"
+                style={{ display: "block", textDecoration: "none", color: "inherit" }}
+                aria-label={`Open ${item.name}`}
+              >
                 {item.poster ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={item.poster} alt={item.name} />
@@ -87,7 +94,7 @@ function SearchContent() {
                   </div>
                 )}
                 <div className="title">{item.name}</div>
-              </div>
+              </Link>
             ))}
           </div>
         )}

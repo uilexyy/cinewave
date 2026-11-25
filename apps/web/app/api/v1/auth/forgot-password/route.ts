@@ -3,8 +3,12 @@ import { ForgotPasswordSchema } from "@cinewave/validation";
 import { prisma } from "@/lib/db";
 import crypto from "crypto";
 import { hashToken } from "@/lib/auth";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
+  const rl = await enforceRateLimit(req, RATE_LIMITS.api);
+  if (rl) return rl;
+
   try {
     const body = await req.json();
     const parsed = ForgotPasswordSchema.safeParse(body);

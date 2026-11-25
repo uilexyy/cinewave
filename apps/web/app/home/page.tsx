@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { apiFetch } from "@/services/api";
 import Sidebar from "@/components/Sidebar";
+import { dedupeCatalogItems, catalogIdentity } from "@/lib/catalog";
 
 interface CatalogItem {
   id: string;
@@ -29,18 +31,16 @@ export default function HomePage() {
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasAddons, setHasAddons] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
-    async function init() {
-      try {
-        const me = await apiFetch<{ user: User }>("auth/me");
-        setUser(me.user);
-      } catch {
-        window.location.href = "/login";
-        return;
-      }
-      try {
-        const data = await apiFetch<Record<string, CatalogItem[]>>("catalog/home");
+    apiFetch<{ user: User }>("auth/me")
+      .then((me) => setUser(me.user))
+      .catch(() => {
+        router.push("/login");
+      });
+    apiFetch<Record<string, CatalogItem[]>>("catalog/home")
+      .then((data) => {
         const all = [
           ...(data.trending || []),
           ...(data.popularMovies || []),
@@ -48,16 +48,12 @@ export default function HomePage() {
           ...(data.topRatedMovies || []),
           ...(data.topRatedSeries || []),
         ];
-        setItems(all);
+        setItems(dedupeCatalogItems(all));
         if (all.length === 0) setHasAddons(false);
-      } catch {
-        setHasAddons(false);
-      } finally {
-        setLoading(false);
-      }
-    }
-    init();
-  }, []);
+      })
+      .catch(() => setHasAddons(false))
+      .finally(() => setLoading(false));
+  }, [router]);
 
   if (loading) {
     return (
@@ -121,7 +117,13 @@ export default function HomePage() {
           ) : (
             <div className="grid grid-5">
               {items.map((item) => (
-                <div key={`${item.addonId}-${item.id}`} className="poster-card">
+                <Link
+                  key={catalogIdentity(item)}
+                  href={`/title/${encodeURIComponent(item.id)}?type=${encodeURIComponent(item.type)}&addonId=${encodeURIComponent(item.addonId || "")}`}
+                  className="poster-card"
+                  style={{ display: "block", textDecoration: "none", color: "inherit" }}
+                  aria-label={`Open ${item.name}`}
+                >
                   {item.poster ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={item.poster} alt={item.name} />
@@ -136,7 +138,7 @@ export default function HomePage() {
                       {item.addonName}
                     </div>
                   )}
-                </div>
+                </Link>
               ))}
             </div>
           )}

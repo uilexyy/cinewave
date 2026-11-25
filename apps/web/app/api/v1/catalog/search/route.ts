@@ -4,13 +4,19 @@ import { extractTokenFromRequest, validateSession } from "@/lib/auth";
 import { fetchManifest } from "@/lib/addon-service";
 import { fetchAddonCatalog } from "@/lib/addon-client";
 import { decryptUrl } from "@/lib/addon-crypto";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import type { AddonCatalogItem } from "@/lib/addon-client";
+import { catalogIdentity, catalogItemScore } from "@/lib/catalog";
+
+type SearchItem = AddonCatalogItem & { addonId?: string; addonName?: string };
 
 export async function GET(req: NextRequest) {
   const token = extractTokenFromRequest(req);
-  if (!token) {
-    return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-  }
-  const user = await validateSession(token);
+  const user = token ? await validateSession(token) : null;
+
+  const rl = await enforceRateLimit(req, RATE_LIMITS.search, user?.id ?? null);
+  if (rl) return rl;
+
   if (!user) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
   }
@@ -28,7 +34,7 @@ export async function GET(req: NextRequest) {
     orderBy: { priority: "desc" },
   });
 
-  const allResults: any[] = [];
+  const allResults: SearchItem[] = [];
 
   for (const addon of addons) {
     let manifestUrl: string;
@@ -49,13 +55,25 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Deduplicate globally by content identity (type:id) so the same title
+  // returned by multiple add-ons/catalogs appears once.
+  const best = new Map<string, SearchItem>();
+  for (const item of allResults) {
+    const key = catalogIdentity(item);
+    const previous = best.get(key);
+    if (!previous || catalogItemScore(item) > catalogItemScore(previous)) {
+      best.set(key, item);
+    }
+  }
+  const uniqueResults = Array.from(best.values());
+
   return NextResponse.json({
     success: true,
     data: {
       page,
       totalPages: 1,
-      totalResults: allResults.length,
-      results: allResults,
+      totalResults: uniqueResults.length,
+      results: uniqueResults,
     },
   });
 }

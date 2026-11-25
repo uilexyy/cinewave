@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { apiFetch, apiDelete } from "@/services/api";
 
 interface WatchlistItem {
@@ -16,21 +17,25 @@ interface WatchlistItem {
 export default function WatchlistPage() {
   const [items, setItems] = useState<WatchlistItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   async function load() {
     try {
       const data = await apiFetch<WatchlistItem[]>("watchlist");
       setItems(data);
     } catch {
-      window.location.href = "/login";
+      router.push("/login");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    apiFetch<WatchlistItem[]>("watchlist")
+      .then(setItems)
+      .catch(() => router.push("/login"))
+      .finally(() => setLoading(false));
+  }, [router]);
 
   async function remove(id: string) {
     try {

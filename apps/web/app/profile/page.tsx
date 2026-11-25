@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { apiFetch, apiPost } from "@/services/api";
 
 interface User {
@@ -13,27 +14,21 @@ interface User {
 export default function ProfilePage() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
-    async function init() {
-      try {
-        const data = await apiFetch<{ user: User }>("auth/me");
-        setUser(data.user);
-      } catch {
-        window.location.href = "/login";
-      } finally {
-        setLoading(false);
-      }
-    }
-    init();
-  }, []);
+    apiFetch<{ user: User }>("auth/me")
+      .then((data) => setUser(data.user))
+      .catch(() => router.push("/login"))
+      .finally(() => setLoading(false));
+  }, [router]);
 
   async function handleLogout() {
     try {
       await apiPost("auth/logout", {});
     } catch {}
     localStorage.removeItem("token");
-    window.location.href = "/";
+    router.push("/");
   }
 
   if (loading) {

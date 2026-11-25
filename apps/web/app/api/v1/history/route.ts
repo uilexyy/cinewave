@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { extractTokenFromRequest, validateSession } from "@/lib/auth";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 
 async function ensureTitle(titleId: string): Promise<boolean> {
@@ -20,10 +21,11 @@ async function ensureTitle(titleId: string): Promise<boolean> {
 
 export async function GET(req: NextRequest) {
   const token = extractTokenFromRequest(req);
-  if (!token) {
-    return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-  }
-  const user = await validateSession(token);
+  const user = token ? await validateSession(token) : null;
+
+  const rl = await enforceRateLimit(req, RATE_LIMITS.api, user?.id ?? null);
+  if (rl) return rl;
+
   if (!user) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
   }
@@ -51,10 +53,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const token = extractTokenFromRequest(req);
-  if (!token) {
-    return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-  }
-  const user = await validateSession(token);
+  const user = token ? await validateSession(token) : null;
+
+  const rl = await enforceRateLimit(req, RATE_LIMITS.api, user?.id ?? null);
+  if (rl) return rl;
+
   if (!user) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
   }
@@ -102,10 +105,11 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const token = extractTokenFromRequest(req);
-  if (!token) {
-    return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-  }
-  const user = await validateSession(token);
+  const user = token ? await validateSession(token) : null;
+
+  const rl = await enforceRateLimit(req, RATE_LIMITS.api, user?.id ?? null);
+  if (rl) return rl;
+
   if (!user) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
   }
@@ -132,10 +136,11 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const token = extractTokenFromRequest(req);
-  if (!token) {
-    return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-  }
-  const user = await validateSession(token);
+  const user = token ? await validateSession(token) : null;
+
+  const rl = await enforceRateLimit(req, RATE_LIMITS.api, user?.id ?? null);
+  if (rl) return rl;
+
   if (!user) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
   }

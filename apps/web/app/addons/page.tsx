@@ -16,27 +16,43 @@ interface Addon {
   lastCheckedAt?: string;
 }
 
+interface AddonPreviewManifest {
+  name?: string;
+  description?: string;
+  version?: string;
+  resources?: string[];
+  types?: string[];
+}
+
+interface AddonPreview {
+  manifest?: AddonPreviewManifest;
+  warnings?: string[];
+}
+
 export default function AddonsPage() {
   const [addons, setAddons] = useState<Addon[]>([]);
   const [loading, setLoading] = useState(true);
   const [manifestUrl, setManifestUrl] = useState("");
   const [installing, setInstalling] = useState(false);
-  const [preview, setPreview] = useState<any>(null);
+  const [preview, setPreview] = useState<AddonPreview | null>(null);
   const [message, setMessage] = useState("");
 
   async function loadAddons() {
     try {
       const data = await apiFetch<Addon[]>("addons");
       setAddons(data);
-    } catch (e: any) {
-      setMessage(e.message);
+    } catch (e: unknown) {
+      setMessage(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadAddons();
+    apiFetch<Addon[]>("addons")
+      .then((data) => setAddons(data))
+      .catch((e: unknown) => setMessage(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
   }, []);
 
   async function handlePreview() {
@@ -47,12 +63,12 @@ export default function AddonsPage() {
     setMessage("");
     setPreview(null);
     try {
-      const data = await apiPost<{ manifest: any; warnings: string[] }>("addons/preview", {
+      const data = await apiPost<AddonPreview>("addons/preview", {
         manifestUrl: manifestUrl.trim(),
       });
       setPreview(data);
-    } catch (e: any) {
-      setMessage(e.message);
+    } catch (e: unknown) {
+      setMessage(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -69,8 +85,8 @@ export default function AddonsPage() {
       setManifestUrl("");
       setPreview(null);
       await loadAddons();
-    } catch (e: any) {
-      setMessage(e.message);
+    } catch (e: unknown) {
+      setMessage(e instanceof Error ? e.message : String(e));
     } finally {
       setInstalling(false);
     }
@@ -80,8 +96,8 @@ export default function AddonsPage() {
     try {
       await apiPatch(`addons/${addon.id}`, { enabled: !addon.enabled });
       await loadAddons();
-    } catch (e: any) {
-      setMessage(e.message);
+    } catch (e: unknown) {
+      setMessage(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -89,8 +105,8 @@ export default function AddonsPage() {
     try {
       await apiPost(`addons/${addon.id}/refresh`, {});
       await loadAddons();
-    } catch (e: any) {
-      setMessage(e.message);
+    } catch (e: unknown) {
+      setMessage(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -99,8 +115,8 @@ export default function AddonsPage() {
     try {
       await apiDelete(`addons?id=${id}`);
       await loadAddons();
-    } catch (e: any) {
-      setMessage(e.message);
+    } catch (e: unknown) {
+      setMessage(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -190,7 +206,7 @@ export default function AddonsPage() {
                   <span key={t} className="badge">{t}</span>
                 ))}
               </div>
-              {preview.warnings?.length > 0 && (
+              {preview.warnings && preview.warnings.length > 0 && (
                 <p style={{ color: "var(--accent-2)", fontSize: 12, marginTop: 8 }}>
                   Warnings: {preview.warnings.join(", ")}
                 </p>

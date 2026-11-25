@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { apiFetch, apiPost } from "@/services/api";
+import { setPendingPlayback } from "@/lib/playback-store";
 
 interface Meta {
   id: string;
@@ -35,36 +36,65 @@ interface Stream {
   description?: string;
 }
 
+interface Subtitle {
+  id?: string;
+  language?: string;
+  format?: string;
+  url?: string;
+}
+
 export default function TitleDetailPage() {
+  return (
+    <Suspense fallback={<div className="loading"><div className="spinner" /></div>}>
+      <TitleContent />
+    </Suspense>
+  );
+}
+
+function TitleContent() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = params?.id as string;
+  const type = searchParams.get("type") || "movie";
+  const addonId = searchParams.get("addonId") || "";
   const [meta, setMeta] = useState<Meta | null>(null);
   const [streams, setStreams] = useState<Stream[]>([]);
+  const [subtitles, setSubtitles] = useState<Subtitle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const router = useRouter();
 
   useEffect(() => {
-    async function load() {
-      try {
-        const m = await apiFetch<Meta>(`catalog/title/${id}?type=movie`);
+    if (!id) return;
+    queueMicrotask(() => setLoading(true));
+    const qs = `type=${encodeURIComponent(type)}${addonId ? `&addonId=${encodeURIComponent(addonId)}` : ""}`;
+    apiFetch<Meta>(`catalog/title/${id}?${qs}`)
+      .then((m) => {
         setMeta(m);
-        const s = await apiFetch<{ sources: Stream[]; subtitles: any[] }>(`playback/${id}?type=movie`);
+        return apiFetch<{ sources: Stream[]; subtitles: Subtitle[] }>(`playback/${id}?${qs}`);
+      })
+      .then((s) => {
         setStreams(s.sources || []);
-      } catch (e: any) {
-        setError(e.message || "Failed to load");
-      } finally {
-        setLoading(false);
-      }
-    }
-    if (id) load();
-  }, [id]);
+        setSubtitles((s.subtitles || []).filter((t): t is Subtitle => !!t && !!t.url));
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load"))
+      .finally(() => setLoading(false));
+  }, [id, type, addonId]);
 
   async function handlePlay(stream: Stream) {
     try {
       await apiPost("playback/sessions", { titleId: id, sourceId: stream.id });
     } catch {}
     if (stream.sourceUrl) {
-      window.location.href = `/player?src=${encodeURIComponent(stream.sourceUrl)}&title=${encodeURIComponent(meta?.name || "")}`;
+      setPendingPlayback({
+        src: stream.sourceUrl,
+        title: meta?.name || "",
+        titleId: id,
+        subtitles: subtitles.map((s) => ({ url: s.url || "", lang: s.language || "en" })).filter((s) => !!s.url),
+      });
+      router.push(
+        `/player?src=${encodeURIComponent(stream.sourceUrl)}&title=${encodeURIComponent(meta?.name || "")}&titleId=${encodeURIComponent(id || "")}${type ? `&type=${encodeURIComponent(type)}` : ""}${addonId ? `&addonId=${encodeURIComponent(addonId)}` : ""}`
+      );
     } else if (stream.externalUrl) {
       window.open(stream.externalUrl, "_blank");
     }
