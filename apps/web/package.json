@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/auth.test.ts && tsx tests/catalog.test.ts && tsx tests/userData.test.ts && tsx tests/addons.test.ts && tsx tests/security.test.ts && tsx tests/ssrf-redirect.test.ts && tsx tests/crypto.test.ts && tsx tests/rate-limit.test.ts && tsx tests/playback.test.ts",
+    "test": "tsx tests/auth.test.ts && tsx tests/catalog.test.ts && tsx tests/userData.test.ts && tsx tests/addons.test.ts && tsx tests/security.test.ts && tsx tests/ssrf-redirect.test.ts && tsx tests/crypto.test.ts && tsx tests/rate-limit.test.ts && tsx tests/playback.test.ts && tsx tests/country-normalize.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

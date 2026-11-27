@@ -6,8 +6,10 @@ import { fetchAddonCatalog } from "@/lib/addon-client";
 import type { AddonCatalogItem } from "@/lib/addon-client";
 import { decryptUrl } from "@/lib/addon-crypto";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
-import { catalogIdentity, catalogItemScore, mergeCatalogItems, CatalogSourceRef } from "@/lib/catalog";
+import { mergeCatalogItems } from "@/lib/catalog";
 import { PLATFORMS, getPlatformFromCatalogId, sortTopRated, isAnime, isDocumentary, normalizeGenres, ALL_GENRES, isValidImdbRating } from "@/lib/catalog-categories";
+
+const PAGE_SIZE = 50;
 
 export async function GET(req: NextRequest) {
   const token = extractTokenFromRequest(req);
@@ -20,6 +22,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(req.url);
+  const skip = Math.max(0, parseInt(searchParams.get("skip") || "0", 10) || 0);
+  const limit = Math.min(PAGE_SIZE, Math.max(1, parseInt(searchParams.get("limit") || String(PAGE_SIZE), 10) || PAGE_SIZE));
+
   const addons = await prisma.userAddon.findMany({
     where: { userId: user.id, enabled: true },
     orderBy: { priority: "desc" },
@@ -27,6 +33,7 @@ export async function GET(req: NextRequest) {
 
   type HomeItem = AddonCatalogItem & { addonId?: string; addonName?: string; platform?: string; catalogId?: string };
   const allItems: HomeItem[] = [];
+  const addonStats: Record<string, { name: string; items: number; failed: boolean }> = {};
 
   const trendingCatalogIds = ["trending-movies", "trending-series"];
   const popularMovieCatalogIds = ["popular-movies"];
@@ -40,20 +47,33 @@ export async function GET(req: NextRequest) {
     try {
       manifestUrl = decryptUrl(addon.manifestUrlEncrypted);
     } catch {
+      addonStats[addon.id] = { name: addon.name, items: 0, failed: true };
       continue;
     }
     const result = await fetchManifest(manifestUrl);
     if (!result.valid || !result.manifest) {
       console.error(`[catalog-home] Invalid manifest for addon "${addon.name}":`, result.errors);
+      addonStats[addon.id] = { name: addon.name, items: 0, failed: true };
       continue;
     }
 
     const catalogs = result.manifest.catalogs || [];
-
+    const catalogsToFetch: Array<{ type: string; id: string }> = [];
     for (const cat of catalogs) {
+      // Stremio supports catalog pagination via 'skip' parameter in the catalog request.
+      catalogsToFetch.push({ type: cat.type, id: cat.id });
+    }
+
+    let addonItemCount = 0;
+    let addonFailed = false;
+
+    for (const cat of catalogsToFetch) {
       try {
-        const items = await fetchAddonCatalog(manifestUrl, result.manifest, cat.type, cat.id);
+        // Implement incremental loading: load requested page if pagination supported,
+        // otherwise only load initial page (skip=0).
+        const items = await fetchAddonCatalog(manifestUrl, result.manifest, cat.type, cat.id, { skip: String(skip) });
         const platform = getPlatformFromCatalogId(cat.id);
+        addonItemCount += items.length;
         for (const item of items) {
           const normalizedGenres = normalizeGenres(item.genres);
           const enrichedItem: HomeItem = {
@@ -66,39 +86,35 @@ export async function GET(req: NextRequest) {
           };
           allItems.push(enrichedItem);
 
-          // Populate sections from their dedicated add-on catalogs (no fabricated ordering)
           if (trendingCatalogIds.includes(cat.id)) trendingMovies.push(enrichedItem);
           else if (popularMovieCatalogIds.includes(cat.id)) popularMovies.push(enrichedItem);
           else if (popularSeriesCatalogIds.includes(cat.id)) popularSeries.push(enrichedItem);
         }
       } catch (err: unknown) {
+        addonFailed = true;
         console.error(`[catalog-home] Failed to fetch catalog from "${addon.name}" (${cat.type}:${cat.id}):`, err instanceof Error ? err.message : String(err));
       }
     }
+    addonStats[addon.id] = { name: addon.name, items: addonItemCount, failed: addonFailed };
   }
 
-  // Deduplicate globally by content identity (type:id), keeping richest metadata
-  // while preserving platform/catalog source attribution for streaming services.
   const uniqueItems = mergeCatalogItems(allItems);
 
-
-  // Helpers
   const isMovie = (i: HomeItem) => i.type === "movie" || i.type === "film";
   const isSeries = (i: HomeItem) => i.type === "series" || i.type === "tv" || i.type === "show";
 
-  // Map into home sections
   type HomeDataShape = {
-  trending: unknown[];
-  popularMovies: unknown[];
-  popularSeries: unknown[];
-  topRatedMovies: unknown[];
-  topRatedSeries: unknown[];
-  streamingServices: Record<string, unknown[]>;
-  genres: string[];
-  anime: unknown[];
-  documentary: unknown[];
-};
-const homeData: HomeDataShape = {
+    trending: unknown[];
+    popularMovies: unknown[];
+    popularSeries: unknown[];
+    topRatedMovies: unknown[];
+    topRatedSeries: unknown[];
+    streamingServices: Record<string, unknown[]>;
+    genres: string[];
+    anime: unknown[];
+    documentary: unknown[];
+  };
+  const homeData: HomeDataShape = {
     trending: [],
     popularMovies: [],
     popularSeries: [],
@@ -110,31 +126,39 @@ const homeData: HomeDataShape = {
     documentary: [],
   };
 
-  homeData.trending = mergeCatalogItems(trendingMovies).slice(0, 20);
-  homeData.popularMovies = mergeCatalogItems(popularMovies).slice(0, 20);
-  homeData.popularSeries = mergeCatalogItems(popularSeries).slice(0, 20);
+  homeData.trending = mergeCatalogItems(trendingMovies);
+  homeData.popularMovies = mergeCatalogItems(popularMovies);
+  homeData.popularSeries = mergeCatalogItems(popularSeries);
 
+  homeData.topRatedMovies = sortTopRated(uniqueItems.filter(isMovie).filter(isValidImdbRating));
+  homeData.topRatedSeries = sortTopRated(uniqueItems.filter(isSeries).filter(isValidImdbRating));
 
-  // Top rated by IMDb rating (only items with rating)
-  homeData.topRatedMovies = sortTopRated(uniqueItems.filter(isMovie).filter(isValidImdbRating)).slice(0, 20);
-  homeData.topRatedSeries = sortTopRated(uniqueItems.filter(isSeries).filter(isValidImdbRating)).slice(0, 20);
-
-  // Streaming services: group by platform (only platforms with content)
   for (const platformKey of Object.keys(PLATFORMS)) {
     const items = uniqueItems.filter(i => ((i.platforms as string[]) || []).includes(platformKey));
     if (items.length > 0) homeData.streamingServices[platformKey] = items;
   }
 
-  // Genres: list unique normalized genres present
   const genreSet = new Set<string>();
   for (const item of uniqueItems) {
     (item.genres || []).forEach(g => genreSet.add(g));
   }
   homeData.genres = ALL_GENRES.filter(g => genreSet.has(g));
 
-  // Anime & Documentary
-  homeData.anime = uniqueItems.filter(i => isAnime(i)).slice(0, 20);
-  homeData.documentary = uniqueItems.filter(i => isDocumentary(i)).slice(0, 20);
+  homeData.anime = uniqueItems.filter(i => isAnime(i));
+  homeData.documentary = uniqueItems.filter(i => isDocumentary(i));
 
-  return NextResponse.json({ success: true, data: homeData });
+  return NextResponse.json({
+    success: true,
+    data: {
+      ...homeData,
+      pagination: {
+        skip,
+        limit,
+        returned: allItems.length,
+        uniqueReturned: uniqueItems.length,
+        hasMore: uniqueItems.length >= PAGE_SIZE,
+      },
+      addonStats,
+    },
+  });
 }

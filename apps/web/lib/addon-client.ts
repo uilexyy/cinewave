@@ -23,6 +23,11 @@ export interface AddonCatalogItem {
   imdbRating?: string;
   genres?: string[];
   runtime?: string;
+  country?: string | string[];
+  countries?: string[];
+  countryCode?: string;
+  originCountry?: string | string[];
+  productionCountries?: Array<string | { name?: string; iso_3166_1?: string; code?: string }>;
   app_extras?: { ratings?: { imdb?: { rating?: string; votes?: number | string } } };
 }
 
@@ -38,6 +43,8 @@ export interface AddonMeta {
   imdbRating?: string;
   genres?: string[];
   runtime?: string;
+  country?: string;
+  language?: string;
   cast?: string[];
   director?: string[];
   videos?: Array<{ id: string; title: string; season?: number; episode?: number; released?: string; thumbnail?: string }>;

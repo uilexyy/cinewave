@@ -21,6 +21,16 @@ const METADATA_FIELDS = [
   "releaseInfo",
   "imdbRating",
   "runtime",
+  "country",
+  "countries",
+  "countryCode",
+  "country_code",
+  "originCountry",
+  "origin_country",
+  "productionCountries",
+  "production_countries",
+  "productionCountry",
+  "production_country",
 ] as const;
 
 const SOURCE_KEY = (r: CatalogSourceRef) => `${r.addonId ?? ""}:${r.catalogId ?? ""}`;
@@ -66,6 +76,9 @@ export function catalogItemScore(item: CatalogIdentity): number {
     if (typeof value === "string" && value.trim() !== "") score += 1;
   }
   if (Array.isArray(raw.genres)) score += raw.genres.length;
+  for (const field of ["country", "countries", "countryCode", "originCountry", "productionCountries"]) {
+    if (raw[field] != null) score += 1;
+  }
   return score;
 }
 

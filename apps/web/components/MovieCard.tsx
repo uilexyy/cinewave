@@ -15,6 +15,11 @@ export interface MovieCardData {
   addonId?: string;
   addonName?: string;
   description?: string;
+  country?: string | string[];
+  countries?: string[];
+  countryCode?: string;
+  originCountry?: string | string[];
+  productionCountries?: any[];
 }
 
 interface Props {

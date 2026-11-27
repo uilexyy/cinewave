@@ -4,10 +4,12 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/services/api";
-import MovieCard, { MovieCardData } from "@/components/MovieCard";
+import { MovieCardData } from "@/components/MovieCard";
 import { dedupeCatalogItems } from "@/lib/catalog";
 import { PLATFORMS } from "@/lib/catalog-categories";
-import { getAvailableYears, filterItemsByYear } from "@/lib/year-normalize";
+import { Carousel } from "@/components/Carousel";
+import { getAvailableYears, filterItemsByYear, extractYear } from "@/lib/year-normalize";
+import { getAvailableCountries, filterItemsByCountry, extractCountries } from "@/lib/country-normalize";
 
 interface HistoryItem {
   id: string;
@@ -18,78 +20,83 @@ interface HistoryItem {
   completed: boolean;
 }
 
-function SectionRow({ title, subtitle, items, action }: { title: string; subtitle?: string; items: MovieCardData[]; action?: React.ReactNode }) {
-  if (items.length === 0) return null;
-  return (
-    <section className="section">
-      <div className="section-header">
-        <div>
-          <h2 className="section-title">{title}</h2>
-          {subtitle && <p className="section-subtitle">{subtitle}</p>}
-        </div>
-        {action}
-      </div>
-      <div className="row-scroll">
-        {items.map((item, i) => (
-          <div key={`${item.type}:${item.id}-${i}`} className="row-item">
-            <MovieCard item={item} />
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 export default function HomePage() {
   const [groups, setGroups] = useState<Record<string, MovieCardData[]>>({});
   const [streamingServices, setStreamingServices] = useState<Record<string, MovieCardData[]>>({});
   const [genres, setGenres] = useState<string[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [skip, setSkip] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [hasAddons, setHasAddons] = useState(true);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
   const [category, setCategory] = useState<"all" | "movie" | "series">("all");
   const router = useRouter();
+
+  const fetchHome = async (currentSkip: number, isMore: boolean) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await apiFetch<any>(`catalog/home?skip=${currentSkip}`);
+    const services: Record<string, MovieCardData[]> = {};
+    for (const [key, items] of Object.entries((data.streamingServices || {}) as Record<string, MovieCardData[]>)) {
+      const deduped = dedupeCatalogItems(items as MovieCardData[]);
+      if (deduped.length > 0) services[key] = deduped;
+    }
+    
+    if (isMore) {
+      setGroups(prev => {
+        const next = { ...prev };
+        for (const key of Object.keys(data)) {
+          if (Array.isArray(data[key])) {
+            next[key] = dedupeCatalogItems([...(prev[key] || []), ...data[key]]);
+          }
+        }
+        return next;
+      });
+      setStreamingServices(prev => ({ ...prev, ...services }));
+      setHasMore(data.pagination.hasMore);
+    } else {
+      setStreamingServices(services);
+      setGenres((data.genres || []) as string[]);
+      setGroups({
+        trending: dedupeCatalogItems(data.trending || []),
+        popularMovies: dedupeCatalogItems(data.popularMovies || []),
+        popularSeries: dedupeCatalogItems(data.popularSeries || []),
+        topRatedMovies: dedupeCatalogItems(data.topRatedMovies || []),
+        topRatedSeries: dedupeCatalogItems(data.topRatedSeries || []),
+        anime: dedupeCatalogItems(data.anime || []),
+        documentary: dedupeCatalogItems(data.documentary || []),
+      });
+      setHasMore(data.pagination.hasMore);
+      if (
+        !(data.trending?.length) && !(data.popularMovies?.length) && !(data.popularSeries?.length) &&
+        !(data.topRatedMovies?.length) && !(data.topRatedSeries?.length)
+      ) setHasAddons(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
     apiFetch("auth/me").catch(() => { if (!cancelled) router.push("/login"); });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    apiFetch<any>("catalog/home")
-      .then((data) => {
-        if (cancelled) return;
-        const services: Record<string, MovieCardData[]> = {};
-        for (const [key, items] of Object.entries((data.streamingServices || {}) as Record<string, MovieCardData[]>)) {
-          const deduped = dedupeCatalogItems(items as MovieCardData[]);
-          if (deduped.length > 0) services[key] = deduped;
-        }
-        setStreamingServices(services);
-        setGenres((data.genres || []) as string[]);
-        setGroups({
-          trending: dedupeCatalogItems(data.trending || []),
-          popularMovies: dedupeCatalogItems(data.popularMovies || []),
-          popularSeries: dedupeCatalogItems(data.popularSeries || []),
-          topRatedMovies: dedupeCatalogItems(data.topRatedMovies || []),
-          topRatedSeries: dedupeCatalogItems(data.topRatedSeries || []),
-          anime: dedupeCatalogItems(data.anime || []),
-          documentary: dedupeCatalogItems(data.documentary || []),
-        });
-        if (
-          !(data.trending?.length) &&
-          !(data.popularMovies?.length) &&
-          !(data.popularSeries?.length) &&
-          !(data.topRatedMovies?.length) &&
-          !(data.topRatedSeries?.length)
-        ) setHasAddons(false);
-      })
-      .catch(() => { if (!cancelled) setHasAddons(false); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-
+    queueMicrotask(() => {
+      fetchHome(0, false)
+        .then(() => { if (!cancelled) setLoading(false); })
+        .catch(() => { if (!cancelled) setHasAddons(false); });
+    });
     apiFetch<HistoryItem[]>("history")
       .then((h) => { if (!cancelled) setHistory(h); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [router]);
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    const nextSkip = skip + 50;
+    await fetchHome(nextSkip, true);
+    setSkip(nextSkip);
+    setLoadingMore(false);
+  };
 
   const allItems = useMemo(() => {
     const list: MovieCardData[] = [];
@@ -114,9 +121,22 @@ export default function HomePage() {
     return getAvailableYears(filtered);
   }, [allItems, category]);
 
+  const availableCountries = useMemo(() => {
+    const filtered = category === "all" ? allItems : allItems.filter((i) => {
+      const isMovie = i.type === "movie" || i.type === "film";
+      return category === "movie" ? isMovie : !isMovie;
+    });
+    return getAvailableCountries(filtered);
+  }, [allItems, category]);
+
   const filterByYear = (list: MovieCardData[]) => {
     if (selectedYear == null) return list;
     return filterItemsByYear(list, selectedYear);
+  };
+
+  const filterByCountry = (list: MovieCardData[]) => {
+    if (selectedCountry == null) return list;
+    return filterItemsByCountry(list, selectedCountry);
   };
 
   const filterByCategory = (list: MovieCardData[]) => {
@@ -126,7 +146,7 @@ export default function HomePage() {
   };
 
   const processItems = (list: MovieCardData[]) => {
-    return filterByYear(filterByCategory(list || []));
+    return filterByCountry(filterByYear(filterByCategory(list || [])));
   };
 
   if (loading) {
@@ -146,7 +166,7 @@ export default function HomePage() {
 
   const hero = groups.trending?.[0] || groups.popularMovies?.[0] || groups.topRatedMovies?.[0] || null;
   const heroBackdrop = hero?.background || hero?.poster;
-  const hasFilters = selectedYear != null || category !== "all";
+  const hasFilters = selectedYear != null || selectedCountry != null || category !== "all";
 
   return (
     <>
@@ -219,6 +239,7 @@ export default function HomePage() {
                     key="all-years"
                     className={`chip ${selectedYear === null ? "chip-active" : ""}`}
                     onClick={() => setSelectedYear(null)}
+                    aria-pressed={selectedYear === null}
                   >
                     All Years
                   </button>
@@ -227,20 +248,53 @@ export default function HomePage() {
                       key={y}
                       className={`chip ${selectedYear === y ? "chip-active" : ""}`}
                       onClick={() => setSelectedYear(y)}
+                      aria-pressed={selectedYear === y}
                     >
                       {y}
                     </button>
                   ))}
-                  {hasFilters && (
+                </div>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <button
+                    key="all-countries"
+                    className={`chip ${selectedCountry === null ? "chip-active" : ""}`}
+                    onClick={() => setSelectedCountry(null)}
+                    aria-pressed={selectedCountry === null}
+                  >
+                    🌐 All Countries
+                  </button>
+                  <button
+                    key="indonesia"
+                    className={`chip ${selectedCountry === "ID" ? "chip-active" : ""}`}
+                    onClick={() => setSelectedCountry("ID")}
+                    aria-pressed={selectedCountry === "ID"}
+                  >
+                    🇮🇩 Indonesia
+                  </button>
+                  {availableCountries.filter((c) => c.code !== "ID").map((c) => (
+                    <button
+                      key={c.code}
+                      className={`chip ${selectedCountry === c.code ? "chip-active" : ""}`}
+                      onClick={() => setSelectedCountry(c.code)}
+                      aria-pressed={selectedCountry === c.code}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+                {hasFilters && (
+                  <div>
                     <button
                       className="btn btn-secondary btn-sm"
-                      onClick={() => { setSelectedYear(null); setCategory("all"); }}
-                      style={{ marginLeft: 8 }}
+                      onClick={() => { setSelectedYear(null); setSelectedCountry(null); setCategory("all"); }}
                     >
                       Reset
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </section>
           )}
@@ -290,9 +344,9 @@ export default function HomePage() {
             </section>
           )}
 
-          <SectionRow title={category === "series" ? "Trending Series" : "Trending Movies"} items={processItems(groups.trending)} />
-          <SectionRow title="Popular Movies" items={processItems(groups.popularMovies)} />
-          <SectionRow title="Popular Series" items={processItems(groups.popularSeries)} />
+          <Carousel title={category === "series" ? "Trending Series" : "Trending Movies"} items={processItems(groups.trending)} />
+          <Carousel title="Popular Movies" items={processItems(groups.popularMovies)} />
+          <Carousel title="Popular Series" items={processItems(groups.popularSeries)} />
 
           {genres.length > 0 && !hasFilters && (
             <section className="section">
@@ -308,16 +362,57 @@ export default function HomePage() {
             </section>
           )}
 
-          <SectionRow title="IMDb Top Rated Movies" items={processItems(groups.topRatedMovies)} action={!hasFilters && <Link href="/discover?sort=top-rated&type=movie" className="section-link">See all</Link>} />
-          <SectionRow title="IMDb Top Rated Series" items={processItems(groups.topRatedSeries)} action={!hasFilters && <Link href="/discover?sort=top-rated&type=series" className="section-link">See all</Link>} />
-          <SectionRow title="Anime" items={processItems(groups.anime)} />
-          <SectionRow title="Documentary" items={processItems(groups.documentary)} />
+          <Carousel title="IMDb Top Rated Movies" items={processItems(groups.topRatedMovies)} />
+          <Carousel title="IMDb Top Rated Series" items={processItems(groups.topRatedSeries)} />
+          <Carousel title="Anime" items={processItems(groups.anime)} />
+          <Carousel title="Documentary" items={processItems(groups.documentary)} />
+
+          {hasMore && hasAddons && !hasFilters && (
+            <div style={{ textAlign: "center", margin: "40px 0" }}>
+              <button className="btn btn-secondary btn-lg" onClick={loadMore} disabled={loadingMore}>
+                {loadingMore ? "Loading more titles..." : "Load More Catalogs"}
+              </button>
+            </div>
+          )}
+
+          {process.env.NODE_ENV === "development" && (
+            <section className="section" style={{ marginTop: 32, padding: 16, border: "1px dashed var(--border)", borderRadius: 8 }}>
+              <h3 className="section-title" style={{ fontSize: 14 }}>Dev Diagnostics</h3>
+              <p className="small dim">Total items: {allItems.length}</p>
+              <p className="small dim">Movies: {allItems.filter(i => i.type === "movie" || i.type === "film").length}</p>
+              <p className="small dim">Series: {allItems.filter(i => i.type === "series" || i.type === "tv" || i.type === "show").length}</p>
+              <p className="small dim">With year: {allItems.filter(i => extractYear(i) != null).length}</p>
+              <p className="small dim">Without year: {allItems.filter(i => extractYear(i) == null).length}</p>
+              <p className="small dim">Indonesian items: {allItems.filter(i => extractCountries(i).includes("ID")).length}</p>
+              <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-dim)" }}>
+                <strong>Raw country metadata sample:</strong>
+                <ul style={{ paddingLeft: 16, margin: "4px 0" }}>
+                  {allItems.slice(0, 5).map((i, idx) => {
+                    const countries = extractCountries(i);
+                    const raw: Record<string, unknown> = {};
+                    ["country", "countries", "countryCode", "originCountry", "productionCountries"].forEach(f => {
+                      const val = (i as unknown as Record<string, unknown>)[f];
+                      if (val != null) raw[f] = val;
+                    });
+                    return (
+                      <li key={String(idx)}>
+                        {i.name}: {Object.keys(raw).length > 0 ? JSON.stringify(raw) : "none"} {countries.length > 0 ? `→ [${countries.join(", ")}]` : ""}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+              <p className="small dim">
+                Matching {selectedYear ?? "all"}: {selectedYear != null ? allItems.filter(i => extractYear(i) === selectedYear).length : allItems.length}
+              </p>
+            </section>
+          )}
 
           {Object.values(groups).every((g) => processItems(g).length === 0) && !loading && hasAddons && (
             <div className="empty-state">
               <h3>No titles found for this filter</h3>
-              <p>Try a different year or category.</p>
-              <button className="btn btn-secondary" onClick={() => { setSelectedYear(null); setCategory("all"); }}>Reset Filters</button>
+              <p>Try a different year, country, or category.</p>
+              <button className="btn btn-secondary" onClick={() => { setSelectedYear(null); setSelectedCountry(null); setCategory("all"); }}>Reset Filters</button>
             </div>
           )}
         </div>
