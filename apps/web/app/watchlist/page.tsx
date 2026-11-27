@@ -1,17 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch, apiDelete } from "@/services/api";
+import MovieCard, { MovieCardData } from "@/components/MovieCard";
 
 interface WatchlistItem {
   id: string;
   title: string;
   type: string;
   posterUrl: string | null;
-  releaseDate: string | null;
-  rating: number | null;
 }
 
 export default function WatchlistPage() {
@@ -19,23 +18,15 @@ export default function WatchlistPage() {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const data = await apiFetch<WatchlistItem[]>("watchlist");
       setItems(data);
-    } catch {
-      router.push("/login");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    apiFetch<WatchlistItem[]>("watchlist")
-      .then(setItems)
-      .catch(() => router.push("/login"))
-      .finally(() => setLoading(false));
+    } catch { router.push("/login"); }
+    finally { setLoading(false); }
   }, [router]);
+
+  useEffect(() => { queueMicrotask(() => { void load(); }); }, [load]);
 
   async function remove(id: string) {
     try {
@@ -44,62 +35,53 @@ export default function WatchlistPage() {
     } catch {}
   }
 
-  if (loading) {
-    return (
-      <div className="loading">
-        <div className="spinner" />
-      </div>
-    );
-  }
-
   return (
-    <div style={{ display: "flex", minHeight: "100vh" }}>
-      <aside className="sidebar">
-        <span className="logo" style={{ fontSize: 24 }}>CineWave</span>
-        <Link href="/home">Home</Link>
-        <Link href="/search">Search</Link>
-        <Link href="/watchlist" className="active">Watchlist</Link>
-        <Link href="/history">History</Link>
-        <Link href="/addons">Add-ons</Link>
-        <Link href="/profile">Profile</Link>
-      </aside>
-      <main className="main-content fade-in">
-        <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 24 }}>My Watchlist</h1>
-        {items.length === 0 ? (
-          <div className="empty-state">
-            <h3>Your Watchlist is Empty</h3>
-            <p>Add titles to your watchlist to watch them later.</p>
-            <Link className="btn btn-primary" href="/home">
-              Browse Catalog
-            </Link>
-          </div>
-        ) : (
-          <div className="grid grid-4">
-            {items.map((item) => (
-              <div key={item.id} className="poster-card">
-                {item.posterUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.posterUrl} alt={item.title} />
-                ) : (
-                  <div style={{ aspectRatio: "2/3", background: "var(--surface-2)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
-                    No Poster
-                  </div>
-                )}
-                <div className="title">{item.title}</div>
-                <div style={{ padding: "0 12px 12px" }}>
-                  <button
-                    className="btn btn-ghost"
-                    style={{ padding: "4px 10px", fontSize: 11, width: "100%" }}
-                    onClick={() => remove(item.id)}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
+    <main className="main-content fade-in">
+      <div className="page">
+        <h1 style={{ fontSize: "clamp(28px, 4vw, 36px)", fontWeight: 800, letterSpacing: "-0.5px", marginBottom: 8 }}>My Watchlist</h1>
+        <p className="muted" style={{ marginBottom: 32, fontSize: 14 }}>Saved movies and series to watch later.</p>
+
+        {loading ? (
+          <div className="card-grid">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="skeleton skeleton-poster" />
             ))}
           </div>
+        ) : items.length === 0 ? (
+          <div className="empty-state">
+            <h3>Your Watchlist is Empty</h3>
+            <p>Bookmark titles from the catalog to watch them later.</p>
+            <Link className="btn btn-primary" href="/home" style={{ marginTop: 12 }}>Browse Catalog</Link>
+          </div>
+        ) : (
+          <div className="card-grid">
+            {items.map((item) => {
+              const cardData: MovieCardData = {
+                id: item.id,
+                type: item.type,
+                name: item.title,
+                poster: item.posterUrl || undefined,
+              };
+              return (
+                <MovieCard
+                  key={item.id}
+                  item={cardData}
+                  badge={
+                    <button
+                      className="icon-btn"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); void remove(item.id); }}
+                      style={{ width: 28, height: 28, borderRadius: 6, background: "rgba(239, 68, 68, 0.8)", color: "#fff", border: "none" }}
+                      aria-label="Remove from watchlist"
+                    >
+                      ✕
+                    </button>
+                  }
+                />
+              );
+            })}
+          </div>
         )}
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }

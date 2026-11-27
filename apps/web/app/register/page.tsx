@@ -5,10 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiPost } from "@/services/api";
 
-interface RegisterResponse {
-  token?: string;
-  user?: { id: string; name: string; email: string };
-}
+interface RegisterResponse { token?: string; user?: { id: string; name: string; email: string }; }
 
 export default function RegisterPage() {
   const [name, setName] = useState("");
@@ -28,54 +25,27 @@ export default function RegisterPage() {
       router.push("/home");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Registration failed");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div className="card" style={{ width: "100%", maxWidth: 420 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8, textAlign: "center" }}>
-          <span className="logo">CineWave</span>
+    <div className="auth-shell">
+      <div className="auth-card">
+        <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 8, textAlign: "center" }}>
+          <span className="logo text-gradient">CineWave</span>
         </h1>
-        <p style={{ color: "var(--text-muted)", textAlign: "center", marginBottom: 28 }}>
-          Create your account
-        </p>
+        <p className="muted" style={{ textAlign: "center", marginBottom: 28, fontSize: 14 }}>Create your account</p>
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <input
-            className="input"
-            placeholder="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-          <input
-            className="input"
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <input
-            className="input"
-            type="password"
-            placeholder="Password (min 6 chars)"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+          <input className="input" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
+          <input className="input" type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <input className="input" type="password" placeholder="Password (min 6 chars)" value={password} onChange={(e) => setPassword(e.target.value)} required />
           {error && <p style={{ color: "var(--danger)", fontSize: 13 }}>{error}</p>}
-          <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: "100%", justifyContent: "center" }}>
+          <button className="btn btn-primary btn-block" type="submit" disabled={loading}>
             {loading ? "Creating..." : "Create Account"}
           </button>
         </form>
-        <p style={{ textAlign: "center", marginTop: 20, color: "var(--text-muted)", fontSize: 14 }}>
-          Already have an account?{" "}
-          <Link href="/login" style={{ color: "var(--accent)" }}>
-            Sign In
-          </Link>
+        <p className="muted" style={{ textAlign: "center", marginTop: 20, fontSize: 14 }}>
+          Already have an account? <Link href="/login" style={{ color: "var(--accent)" }}>Sign In</Link>
         </p>
       </div>
     </div>

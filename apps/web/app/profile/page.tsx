@@ -24,53 +24,37 @@ export default function ProfilePage() {
   }, [router]);
 
   async function handleLogout() {
-    try {
-      await apiPost("auth/logout", {});
-    } catch {}
+    try { await apiPost("auth/logout", {}); } catch {}
     localStorage.removeItem("token");
     router.push("/");
   }
 
-  if (loading) {
-    return (
-      <div className="loading">
-        <div className="spinner" />
-      </div>
-    );
-  }
-
   return (
-    <div style={{ display: "flex", minHeight: "100vh" }}>
-      <aside className="sidebar">
-        <span className="logo" style={{ fontSize: 24 }}>CineWave</span>
-        <Link href="/home">Home</Link>
-        <Link href="/search">Search</Link>
-        <Link href="/watchlist">Watchlist</Link>
-        <Link href="/history">History</Link>
-        <Link href="/addons">Add-ons</Link>
-        <Link href="/profile" className="active">Profile</Link>
-      </aside>
-      <main className="main-content fade-in">
-        <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 24 }}>Profile</h1>
-        <div className="card" style={{ maxWidth: 480 }}>
-          {user && (
-            <>
-              <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
-                <div className="avatar" style={{ width: 64, height: 64, fontSize: 24 }}>
-                  {user.name.charAt(0).toUpperCase()}
-                </div>
-                <div>
-                  <h2 style={{ fontSize: 20, fontWeight: 700 }}>{user.name}</h2>
-                  <p style={{ color: "var(--text-muted)", fontSize: 14 }}>{user.email}</p>
-                </div>
+    <main className="main-content fade-in">
+      <div className="page-narrow">
+        <h1 style={{ fontSize: "clamp(28px, 4vw, 36px)", fontWeight: 800, letterSpacing: "-0.5px", marginBottom: 8 }}>Profile</h1>
+        <p className="muted" style={{ marginBottom: 32, fontSize: 14 }}>Your account and preferences.</p>
+
+        {loading ? (
+          <div className="loading"><div className="spinner" /></div>
+        ) : user ? (
+          <div className="card" style={{ padding: 32 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 32 }}>
+              <div className="avatar" style={{ width: 80, height: 80, fontSize: 32 }}>{user.name.charAt(0).toUpperCase()}</div>
+              <div>
+                <h2 style={{ fontSize: 22, fontWeight: 700 }}>{user.name}</h2>
+                <p className="muted small">{user.email}</p>
               </div>
-              <button className="btn btn-ghost" onClick={handleLogout} style={{ width: "100%", justifyContent: "center" }}>
-                Sign Out
-              </button>
-            </>
-          )}
-        </div>
-      </main>
-    </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <Link href="/watchlist" className="btn btn-secondary" style={{ justifyContent: "flex-start" }}>My Watchlist</Link>
+              <Link href="/history" className="btn btn-secondary" style={{ justifyContent: "flex-start" }}>Watch History</Link>
+              <Link href="/addons" className="btn btn-secondary" style={{ justifyContent: "flex-start" }}>Manage Add-ons</Link>
+            </div>
+            <button className="btn btn-danger" style={{ width: "100%", marginTop: 32 }} onClick={handleLogout}>Sign Out</button>
+          </div>
+        ) : null}
+      </div>
+    </main>
   );
 }

@@ -1,105 +1,88 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
-import Link from "next/link";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { apiFetch } from "@/services/api";
-
-interface CatalogItem {
-  id: string;
-  type: string;
-  name: string;
-  poster?: string;
-  description?: string;
-  releaseInfo?: string;
-  imdbRating?: string;
-  addonName?: string;
-}
+import MovieCard, { MovieCardData } from "@/components/MovieCard";
 
 function SearchContent() {
   const searchParams = useSearchParams();
   const q = searchParams.get("q") || "";
   const router = useRouter();
+
   const [query, setQuery] = useState(q);
-  const [results, setResults] = useState<CatalogItem[]>([]);
+  const [results, setResults] = useState<MovieCardData[]>([]);
   const [loading, setLoading] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!q) {
-      queueMicrotask(() => setResults([]));
-      return;
-    }
+    if (!q) return;
+    let cancelled = false;
     queueMicrotask(() => setLoading(true));
-    apiFetch<{ results: CatalogItem[] }>(`catalog/search?q=${encodeURIComponent(q)}`)
-      .then((data) => setResults(data.results || []))
-      .catch(() => setResults([]))
-      .finally(() => setLoading(false));
+    apiFetch<{ results: MovieCardData[] }>(`catalog/search?q=${encodeURIComponent(q)}`)
+      .then((data) => { if (!cancelled) setResults(data.results || []); })
+      .catch(() => { if (!cancelled) setResults([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [q]);
 
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (query.trim()) router.push(`/search?q=${encodeURIComponent(query)}`);
-  }
+  useEffect(() => {
+    if (!query || query === q) return;
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      router.push(`/search?q=${encodeURIComponent(query)}`);
+    }, 500);
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
+  }, [query, q, router]);
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh" }}>
-      <aside className="sidebar">
-        <span className="logo" style={{ fontSize: 24 }}>CineWave</span>
-        <Link href="/home">Home</Link>
-        <Link href="/search" className="active">Search</Link>
-        <Link href="/watchlist">Watchlist</Link>
-        <Link href="/history">History</Link>
-        <Link href="/addons">Add-ons</Link>
-        <Link href="/profile">Profile</Link>
-      </aside>
-      <main className="main-content fade-in">
-        <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 24 }}>Search</h1>
-        <form onSubmit={submit} style={{ marginBottom: 24 }}>
-          <div className="search-bar" style={{ maxWidth: "100%" }}>
+    <main className="main-content fade-in">
+      <div className="page page-narrow">
+        <h1 style={{ fontSize: "clamp(28px, 4vw, 36px)", fontWeight: 800, letterSpacing: "-0.5px", marginBottom: 8 }}>Discover</h1>
+        <p className="muted" style={{ marginBottom: 28, fontSize: 14 }}>Search movies, series, and more from your add-ons.</p>
+
+        <form onSubmit={(e) => { e.preventDefault(); if (query.trim()) router.push(`/search?q=${encodeURIComponent(query)}`); }}>
+          <div className="search-bar" style={{ maxWidth: 640, width: "100%" }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
             <input
               placeholder="Search movies, series, anime..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               autoFocus
+              aria-label="Search"
             />
           </div>
         </form>
-        {loading && (
-          <div className="loading">
-            <div className="spinner" />
-          </div>
-        )}
-        {!loading && q && results.length === 0 && (
-          <div className="empty-state">
-            <h3>No Results</h3>
-            <p>No matches found for &quot;{q}&quot;.</p>
-          </div>
-        )}
-        {!loading && results.length > 0 && (
-          <div className="grid grid-5">
-            {results.map((item) => (
-              <Link
-                key={`${item.type}:${item.id}`}
-                href={`/title/${encodeURIComponent(item.id)}?type=${encodeURIComponent(item.type)}`}
-                className="poster-card"
-                style={{ display: "block", textDecoration: "none", color: "inherit" }}
-                aria-label={`Open ${item.name}`}
-              >
-                {item.poster ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.poster} alt={item.name} />
-                ) : (
-                  <div style={{ aspectRatio: "2/3", background: "var(--surface-2)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
-                    No Poster
-                  </div>
-                )}
-                <div className="title">{item.name}</div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </main>
-    </div>
+
+        <div style={{ marginTop: 32 }}>
+          {loading && (
+            <div className="card-grid">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div key={i} className="skeleton skeleton-poster" />
+              ))}
+            </div>
+          )}
+
+          {!loading && q && results.length === 0 && (
+            <div className="empty-state">
+              <h3>No Results</h3>
+              <p>No matches found for &quot;{q}&quot;.</p>
+            </div>
+          )}
+
+          {!loading && results.length > 0 && (
+            <>
+              <p className="small dim" style={{ marginBottom: 16 }}>{results.length} result{results.length > 1 ? "s" : ""} for &quot;{q}&quot;</p>
+              <div className="card-grid">
+                {results.map((item) => (
+                  <MovieCard key={`${item.type}:${item.id}`} item={item} />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </main>
   );
 }
 

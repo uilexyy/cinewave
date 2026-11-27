@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { extractTokenFromRequest, validateSession } from "@/lib/auth";
 import { fetchManifest } from "@/lib/addon-service";
-import { fetchAddonStreams, fetchAddonSubtitles, getStreamPlayableUrl, fetchSubtitleContent } from "@/lib/addon-client";
+import { fetchAddonStreams, getStreamPlayableUrl } from "@/lib/addon-client";
 import { decryptUrl } from "@/lib/addon-crypto";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
@@ -49,17 +49,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ titl
     title?: string;
     description?: string;
   }
-  interface PlaybackSubtitle {
-    id: string;
-    language?: string;
-    format: string;
-    url?: string;
-    content?: string;
-    source?: string;
-  }
   const sources: PlaybackSource[] = [];
-  const subtitles: PlaybackSubtitle[] = [];
-
   const contentId = episodeId ? episodeId : titleId;
 
   for (const addon of addons) {
@@ -89,24 +79,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ titl
         description: stream.description,
       });
     }
-
-    const subs = await fetchAddonSubtitles(manifestUrl, result.manifest, type, contentId);
-    for (const sub of subs) {
-      if (!sub.url) continue;
-      const fetched = await fetchSubtitleContent(sub.url);
-      subtitles.push({
-        id: `${addon.id}-${subtitles.length}`,
-        language: sub.lang,
-        format: "vtt",
-        url: sub.url,
-        source: addon.name,
-        ...("content" in fetched ? { content: fetched.content } : {}),
-      });
-    }
   }
 
   return NextResponse.json({
     success: true,
-    data: { sources, subtitles },
+    data: { sources },
   });
 }

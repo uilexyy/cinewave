@@ -23,6 +23,7 @@ export interface AddonCatalogItem {
   imdbRating?: string;
   genres?: string[];
   runtime?: string;
+  app_extras?: { ratings?: { imdb?: { rating?: string; votes?: number | string } } };
 }
 
 export interface AddonMeta {
@@ -40,6 +41,7 @@ export interface AddonMeta {
   cast?: string[];
   director?: string[];
   videos?: Array<{ id: string; title: string; season?: number; episode?: number; released?: string; thumbnail?: string }>;
+  app_extras?: { ratings?: { imdb?: { rating?: string; votes?: number | string } } };
 }
 
 export interface AddonStream {

@@ -72,13 +72,13 @@ test('switching sources works', async ({ page }) => {
 });
 
 test('subtitle selector appears when tracks provided', async ({ page }) => {
-  await page.route('**/api/v1/playback/*', async (route) => {
+  await page.route('**/api/v1/playback/**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         success: true,
-        data: { subtitles: [{ url: `http://127.0.0.1:${vttPort}/test.vtt`, lang: 'en' }] },
+        data: { subtitles: [{ url: `http://127.0.0.1:${vttPort}/test.vtt`, language: 'en', source: 'Mock Addon' }] },
       }),
     });
   });

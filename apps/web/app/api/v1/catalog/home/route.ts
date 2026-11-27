@@ -7,6 +7,7 @@ import type { AddonCatalogItem } from "@/lib/addon-client";
 import { decryptUrl } from "@/lib/addon-crypto";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { catalogIdentity, catalogItemScore } from "@/lib/catalog";
+import { PLATFORMS, getPlatformFromCatalogId, sortTopRated, isAnime, isDocumentary, normalizeGenres, ALL_GENRES, isValidImdbRating } from "@/lib/catalog-categories";
 
 export async function GET(req: NextRequest) {
   const token = extractTokenFromRequest(req);
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
     orderBy: { priority: "desc" },
   });
 
-  type HomeItem = AddonCatalogItem & { addonId?: string; addonName?: string };
+  type HomeItem = AddonCatalogItem & { addonId?: string; addonName?: string; platform?: string; catalogId?: string };
   const allItems: HomeItem[] = [];
 
   for (const addon of addons) {
@@ -41,19 +42,13 @@ export async function GET(req: NextRequest) {
     }
 
     const catalogs = result.manifest.catalogs || [];
-    console.log(`[catalog-home] Addon "${addon.name}" (v${addon.version}) has ${catalogs.length} catalogs.`);
-
-    if (catalogs.length === 0) {
-      console.warn(`[catalog-home] Addon "${addon.name}" has NO catalogs defined in manifest. It might be a stream-only addon.`);
-    }
-
     for (const cat of catalogs) {
-      console.log(`[catalog-home] Fetching catalog: addon="${addon.name}", type="${cat.type}", id="${cat.id}"`);
       try {
         const items = await fetchAddonCatalog(manifestUrl, result.manifest, cat.type, cat.id);
-        console.log(`[catalog-home] Received ${items.length} items from "${addon.name}" for ${cat.type}:${cat.id}`);
+        const platform = getPlatformFromCatalogId(cat.id);
         for (const item of items) {
-          allItems.push({ ...item, addonId: addon.id, addonName: addon.name });
+          const normalizedGenres = normalizeGenres(item.genres);
+          allItems.push({ ...item, genres: normalizedGenres, addonId: addon.id, addonName: addon.name, platform: platform || undefined, catalogId: cat.id });
         }
       } catch (err: unknown) {
         console.error(`[catalog-home] Failed to fetch catalog from "${addon.name}" (${cat.type}:${cat.id}):`, err instanceof Error ? err.message : String(err));
@@ -61,8 +56,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Deduplicate by content identity (type:id), keeping the entry with the
-  // richest metadata. Do NOT key on title: distinct titles may share a name.
+  // Deduplicate globally by content identity (type:id), keeping richest metadata
   const best = new Map<string, HomeItem>();
   for (const item of allItems) {
     const key = catalogIdentity(item);
@@ -73,34 +67,58 @@ export async function GET(req: NextRequest) {
   }
   const uniqueItems = Array.from(best.values());
 
+  // Helpers
+  const isMovie = (i: HomeItem) => i.type === "movie" || i.type === "film";
+  const isSeries = (i: HomeItem) => i.type === "series" || i.type === "tv" || i.type === "show";
+
   // Map into home sections
-  const homeData: Record<string, HomeItem[]> = {
+  type HomeDataShape = {
+  trending: unknown[];
+  popularMovies: unknown[];
+  popularSeries: unknown[];
+  topRatedMovies: unknown[];
+  topRatedSeries: unknown[];
+  streamingServices: Record<string, unknown[]>;
+  genres: string[];
+  anime: unknown[];
+  documentary: unknown[];
+};
+const homeData: HomeDataShape = {
     trending: [],
     popularMovies: [],
     popularSeries: [],
     topRatedMovies: [],
     topRatedSeries: [],
+    streamingServices: {},
+    genres: [],
+    anime: [],
+    documentary: [],
   };
 
-  let popularMoviesStarted = false;
-  let popularSeriesStarted = false;
-  for (const item of uniqueItems) {
-    if (item.type === "movie" || item.type === "film") {
-      if (!popularMoviesStarted) {
-        homeData.popularMovies = [item];
-        popularMoviesStarted = true;
-      } else {
-        homeData.trending.push(item);
-      }
-    } else if (item.type === "series" || item.type === "tv" || item.type === "show") {
-      if (!popularSeriesStarted) {
-        homeData.popularSeries = [item];
-        popularSeriesStarted = true;
-      } else {
-        homeData.topRatedSeries.push(item);
-      }
-    }
+  homeData.trending = uniqueItems.slice(0, 20);
+  homeData.popularMovies = uniqueItems.filter(isMovie).slice(0, 20);
+  homeData.popularSeries = uniqueItems.filter(isSeries).slice(0, 20);
+
+  // Top rated by IMDb rating (only items with rating)
+  homeData.topRatedMovies = sortTopRated(uniqueItems.filter(isMovie).filter(isValidImdbRating)).slice(0, 20);
+  homeData.topRatedSeries = sortTopRated(uniqueItems.filter(isSeries).filter(isValidImdbRating)).slice(0, 20);
+
+  // Streaming services: group by platform (only platforms with content)
+  for (const platformKey of Object.keys(PLATFORMS)) {
+    const items = uniqueItems.filter(i => i.platform === platformKey);
+    if (items.length > 0) homeData.streamingServices[platformKey] = items;
   }
+
+  // Genres: list unique normalized genres present
+  const genreSet = new Set<string>();
+  for (const item of uniqueItems) {
+    (item.genres || []).forEach(g => genreSet.add(g));
+  }
+  homeData.genres = ALL_GENRES.filter(g => genreSet.has(g));
+
+  // Anime & Documentary
+  homeData.anime = uniqueItems.filter(i => isAnime(i)).slice(0, 20);
+  homeData.documentary = uniqueItems.filter(i => isDocumentary(i)).slice(0, 20);
 
   return NextResponse.json({ success: true, data: homeData });
 }
