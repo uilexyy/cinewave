@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/services/api";
 import MovieCard, { MovieCardData } from "@/components/MovieCard";
 import { dedupeCatalogItems } from "@/lib/catalog";
 import { PLATFORMS } from "@/lib/catalog-categories";
+import { getAvailableYears, filterItemsByYear } from "@/lib/year-normalize";
 
 interface HistoryItem {
   id: string;
@@ -46,13 +47,13 @@ export default function HomePage() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasAddons, setHasAddons] = useState(true);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [category, setCategory] = useState<"all" | "movie" | "series">("all");
   const router = useRouter();
 
   useEffect(() => {
     let cancelled = false;
-
     apiFetch("auth/me").catch(() => { if (!cancelled) router.push("/login"); });
-
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     apiFetch<any>("catalog/home")
       .then((data) => {
@@ -87,9 +88,46 @@ export default function HomePage() {
     apiFetch<HistoryItem[]>("history")
       .then((h) => { if (!cancelled) setHistory(h); })
       .catch(() => {});
-
     return () => { cancelled = true; };
   }, [router]);
+
+  const allItems = useMemo(() => {
+    const list: MovieCardData[] = [];
+    const seen = new Set<string>();
+    for (const key of Object.keys(groups)) {
+      const sectionItems = groups[key] || [];
+      for (const item of sectionItems) {
+        const identity = `${item.type}:${item.id}`;
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+        list.push(item);
+      }
+    }
+    return list;
+  }, [groups]);
+
+  const availableYears = useMemo(() => {
+    const filtered = category === "all" ? allItems : allItems.filter((i) => {
+      const isMovie = i.type === "movie" || i.type === "film";
+      return category === "movie" ? isMovie : !isMovie;
+    });
+    return getAvailableYears(filtered);
+  }, [allItems, category]);
+
+  const filterByYear = (list: MovieCardData[]) => {
+    if (selectedYear == null) return list;
+    return filterItemsByYear(list, selectedYear);
+  };
+
+  const filterByCategory = (list: MovieCardData[]) => {
+    if (category === "all") return list;
+    const isMovie = category === "movie";
+    return list.filter((i) => (i.type === "movie" || i.type === "film") ? isMovie : !isMovie);
+  };
+
+  const processItems = (list: MovieCardData[]) => {
+    return filterByYear(filterByCategory(list || []));
+  };
 
   if (loading) {
     return (
@@ -108,12 +146,12 @@ export default function HomePage() {
 
   const hero = groups.trending?.[0] || groups.popularMovies?.[0] || groups.topRatedMovies?.[0] || null;
   const heroBackdrop = hero?.background || hero?.poster;
+  const hasFilters = selectedYear != null || category !== "all";
 
   return (
     <>
       <main className="main-content fade-in">
         <div className="page">
-          {/* 1. Featured / Hero */}
           {hero && (
             <div className="hero">
               <div className="hero-backdrop">
@@ -133,7 +171,7 @@ export default function HomePage() {
                 ) : null}
                 <h1>{hero.name}</h1>
                 <div className="hero-meta">
-                  {hero.releaseInfo && <span className="badge">📅 {hero.releaseInfo}</span>}
+                  {hero.releaseInfo && <span className="badge">{hero.releaseInfo}</span>}
                   {hero.imdbRating && <span className="badge badge-imdb">IMDb {hero.imdbRating}</span>}
                   {hero.addonName && <span className="badge badge-accent">{hero.addonName}</span>}
                 </div>
@@ -144,14 +182,7 @@ export default function HomePage() {
                     addonName: hero.addonName || "", releaseInfo: hero.releaseInfo || "", imdbRating: hero.imdbRating || "",
                     genres: (hero.genres || []).join(","), description: hero.description || "",
                   }).toString()}`}>
-                    ▶ Watch Now
-                  </Link>
-                  <Link className="btn btn-secondary btn-lg" href={`/title/${encodeURIComponent(hero.id)}?${new URLSearchParams({
-                    type: hero.type, addonId: hero.addonId || "", name: hero.name || "", poster: hero.poster || "", background: hero.background || "",
-                    addonName: hero.addonName || "", releaseInfo: hero.releaseInfo || "", imdbRating: hero.imdbRating || "",
-                    genres: (hero.genres || []).join(","), description: hero.description || "",
-                  }).toString()}`}>
-                    More Info
+                    Watch Now
                   </Link>
                 </div>
               </div>
@@ -166,15 +197,59 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* 2. Continue Watching */}
-          {history.length > 0 && (
-            <section className="section">
+          {/* Catalog Filter Controls */}
+          {hasAddons && (
+            <section className="section" style={{ marginBottom: 32 }}>
               <div className="section-header">
                 <div>
-                  <h2 className="section-title">Continue Watching</h2>
-                  <p className="section-subtitle">Jump back into your recently watched titles</p>
+                  <h2 className="section-title" style={{ fontSize: 18 }}>Quick Filters</h2>
+                  <p className="section-subtitle">Discover by category and release year</p>
                 </div>
-                <Link href="/history" className="section-link">View history →</Link>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button className={`chip ${category === "all" ? "chip-active" : ""}`} onClick={() => setCategory("all")}>All Content</button>
+                  <button className={`chip ${category === "movie" ? "chip-active" : ""}`} onClick={() => setCategory("movie")}>Movies Only</button>
+                  <button className={`chip ${category === "series" ? "chip-active" : ""}`} onClick={() => setCategory("series")}>Series Only</button>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <button
+                    key="all-years"
+                    className={`chip ${selectedYear === null ? "chip-active" : ""}`}
+                    onClick={() => setSelectedYear(null)}
+                  >
+                    All Years
+                  </button>
+                  {availableYears.map((y) => (
+                    <button
+                      key={y}
+                      className={`chip ${selectedYear === y ? "chip-active" : ""}`}
+                      onClick={() => setSelectedYear(y)}
+                    >
+                      {y}
+                    </button>
+                  ))}
+                  {hasFilters && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => { setSelectedYear(null); setCategory("all"); }}
+                      style={{ marginLeft: 8 }}
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {history.length > 0 && !hasFilters && (
+            <section className="section">
+              <div className="section-header">
+                <div><h2 className="section-title">Continue Watching</h2></div>
+                <Link href="/history" className="section-link">View history</Link>
               </div>
               <div className="row-scroll">
                 {history.slice(0, 12).map((h) => {
@@ -191,15 +266,11 @@ export default function HomePage() {
             </section>
           )}
 
-          {/* 3. Streaming Services */}
-          {Object.keys(streamingServices).length > 0 && (
+          {Object.keys(streamingServices).length > 0 && !hasFilters && (
             <section className="section">
               <div className="section-header">
-                <div>
-                  <h2 className="section-title">Streaming Services</h2>
-                  <p className="section-subtitle">Browse by platform (inferred from catalog source, not verified streaming availability)</p>
-                </div>
-                <Link href="/discover" className="section-link">All platforms →</Link>
+                <div><h2 className="section-title">Streaming Services</h2></div>
+                <Link href="/discover" className="section-link">All platforms</Link>
               </div>
               <div className="platform-selector">
                 {Object.entries(streamingServices).map(([key, items]) => {
@@ -219,19 +290,15 @@ export default function HomePage() {
             </section>
           )}
 
-          <SectionRow title="Trending Movies" subtitle="Popular right now across your add-ons" items={groups.trending?.filter(i => i.type === "movie" || i.type === "film") || []} />
-          <SectionRow title="Popular Movies" items={groups.popularMovies || []} />
-          <SectionRow title="Popular Series" items={groups.popularSeries || []} />
+          <SectionRow title={category === "series" ? "Trending Series" : "Trending Movies"} items={processItems(groups.trending)} />
+          <SectionRow title="Popular Movies" items={processItems(groups.popularMovies)} />
+          <SectionRow title="Popular Series" items={processItems(groups.popularSeries)} />
 
-          {/* 7. Genres */}
-          {genres.length > 0 && (
+          {genres.length > 0 && !hasFilters && (
             <section className="section">
               <div className="section-header">
-                <div>
-                  <h2 className="section-title">Genres</h2>
-                  <p className="section-subtitle">From your add-on metadata</p>
-                </div>
-                <Link href="/discover" className="section-link">Explore →</Link>
+                <div><h2 className="section-title">Genres</h2></div>
+                <Link href="/discover" className="section-link">Explore</Link>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {genres.map((g) => (
@@ -241,20 +308,16 @@ export default function HomePage() {
             </section>
           )}
 
-          {/* 8. IMDb Top Rated Movies */}
-          <SectionRow title="IMDb Top Rated Movies" subtitle="Sorted by real IMDb rating from add-on metadata" items={groups.topRatedMovies || []} action={<Link href="/discover?sort=top-rated&type=movie" className="section-link">See all →</Link>} />
-          {/* 9. IMDb Top Rated Series */}
-          <SectionRow title="IMDb Top Rated Series" subtitle="Sorted by real IMDb rating from add-on metadata" items={groups.topRatedSeries || []} action={<Link href="/discover?sort=top-rated&type=series" className="section-link">See all →</Link>} />
+          <SectionRow title="IMDb Top Rated Movies" items={processItems(groups.topRatedMovies)} action={!hasFilters && <Link href="/discover?sort=top-rated&type=movie" className="section-link">See all</Link>} />
+          <SectionRow title="IMDb Top Rated Series" items={processItems(groups.topRatedSeries)} action={!hasFilters && <Link href="/discover?sort=top-rated&type=series" className="section-link">See all</Link>} />
+          <SectionRow title="Anime" items={processItems(groups.anime)} />
+          <SectionRow title="Documentary" items={processItems(groups.documentary)} />
 
-          {/* 10. Anime & Documentary */}
-          <SectionRow title="Anime" items={groups.anime || []} />
-          <SectionRow title="Documentary" items={groups.documentary || []} />
-
-          {Object.values(groups).every((g) => g.length === 0) && !loading && (
+          {Object.values(groups).every((g) => processItems(g).length === 0) && !loading && hasAddons && (
             <div className="empty-state">
-              <h3>No Content Available</h3>
-              <p>Install an add-on to populate your catalog.</p>
-              <Link className="btn btn-primary" href="/addons">Go to Add-ons</Link>
+              <h3>No titles found for this filter</h3>
+              <p>Try a different year or category.</p>
+              <button className="btn btn-secondary" onClick={() => { setSelectedYear(null); setCategory("all"); }}>Reset Filters</button>
             </div>
           )}
         </div>

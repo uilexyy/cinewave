@@ -42,12 +42,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ titl
     format: string;
     quality: string;
     providerName: string;
+    addonId: string;
     legalStatus: string;
     isPlayable: boolean;
     externalUrl: string | null;
     name?: string;
     title?: string;
     description?: string;
+    behaviorHints?: Record<string, unknown>;
   }
   const sources: PlaybackSource[] = [];
   const contentId = episodeId ? episodeId : titleId;
@@ -71,12 +73,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ titl
         format: stream.url ? "direct" : stream.externalUrl ? "external" : "unknown",
         quality: stream.name || "Unknown",
         providerName: addon.name,
+        addonId: addon.id,
         legalStatus: "APPROVED",
         isPlayable: !!playableUrl,
         externalUrl: stream.externalUrl || null,
         name: stream.name,
         title: stream.title,
         description: stream.description,
+        behaviorHints: stream.behaviorHints,
       });
     }
   }

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useState, Suspense, useMemo } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { apiFetch } from "@/services/api";
 import MovieCard, { MovieCardData } from "@/components/MovieCard";
 import PlatformSelector from "@/components/PlatformSelector";
 import { ALL_GENRES, PLATFORMS } from "@/lib/catalog-categories";
+import { getAvailableYears, filterItemsByYear } from "@/lib/year-normalize";
 
 interface DiscoverData {
   results: MovieCardData[];
@@ -17,14 +18,35 @@ interface DiscoverData {
 
 function DiscoverContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [query, setQuery] = useState(searchParams.get("q") || "");
   const [type, setType] = useState(searchParams.get("type") || "all");
   const [platform, setPlatform] = useState(searchParams.get("platform") || "");
   const [genre, setGenre] = useState(searchParams.get("genre") || "");
   const [sort, setSort] = useState(searchParams.get("sort") || "popular");
+  const [year, setYear] = useState<number | null>(() => {
+    const y = searchParams.get("year");
+    return y ? parseInt(y, 10) : null;
+  });
   const [data, setData] = useState<DiscoverData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Keep URL query params in sync with filters (after initial hydration)
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (query.trim()) params.set("q", query.trim());
+    if (type !== "all") params.set("type", type);
+    if (platform) params.set("platform", platform);
+    if (genre) params.set("genre", genre);
+    if (sort !== "popular") params.set("sort", sort);
+    if (year !== null) params.set("year", String(year));
+    const next = params.toString();
+    if (next !== searchParams.toString()) {
+      router.replace(`/discover${next ? `?${next}` : ""}`, { scroll: false });
+    }
+  }, [query, type, platform, genre, sort, year, router, searchParams]);
+
+  // Main catalog fetch (year removed from dependencies for local-only filtering)
   useEffect(() => {
     let cancelled = false;
     queueMicrotask(() => setLoading(true));
@@ -34,15 +56,35 @@ function DiscoverContent() {
     if (platform) params.set("platform", platform);
     if (genre) params.set("genre", genre);
     if (sort !== "popular") params.set("sort", sort);
+    // Year filter NOT sent to API as per requirement "Filter only currently loaded data"
     apiFetch<DiscoverData>(`catalog/discover?${params.toString()}`)
-      .then((d) => { if (!cancelled) setData(d); })
-      .catch(() => { if (!cancelled) setData({ results: [], availablePlatforms: [], availableGenres: [], total: 0 }); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch(() => {
+        if (!cancelled) setData({ results: [], availablePlatforms: [], availableGenres: [], total: 0 });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => { cancelled = true; };
   }, [query, type, platform, genre, sort]);
 
-  const clear = () => { setQuery(""); setType("all"); setPlatform(""); setGenre(""); setSort("popular"); };
-  const hasFilters = Boolean(query || platform || genre || type !== "all" || sort !== "popular");
+  const clear = () => {
+    setQuery("");
+    setType("all");
+    setPlatform("");
+    setGenre("");
+    setSort("popular");
+    setYear(null);
+  };
+
+  const hasFilters = Boolean(query || platform || genre || type !== "all" || sort !== "popular" || year !== null);
+
+  // Filter and available years derived from current results
+  const allResults = useMemo(() => data?.results || [], [data]);
+  const availableYears = useMemo(() => getAvailableYears(allResults), [allResults]);
+  const filteredResults = useMemo(() => (year != null ? filterItemsByYear(allResults, year) : allResults), [allResults, year]);
 
   return (
     <main className="main-content fade-in">
@@ -52,7 +94,7 @@ function DiscoverContent() {
             <h1 style={{ fontSize: "clamp(28px, 4vw, 40px)", fontWeight: 800, letterSpacing: "-0.5px" }}>Discover</h1>
             <p className="section-subtitle">Explore by streaming service, genre, or IMDb rating.</p>
           </div>
-          <Link href="/search" className="section-link">Simple search →</Link>
+          <Link href="/search" className="section-link">Simple search &apos;+</Link>
         </div>
 
         <div className="search-bar" style={{ maxWidth: 560, marginBottom: 28 }}>
@@ -94,6 +136,43 @@ function DiscoverContent() {
           </div>
         </section>
 
+        {/* D. Year Filter */}
+        <section className="section">
+          <div className="section-header">
+            <div>
+              <h2 className="section-title" style={{ fontSize: 18 }}>D. Year Filter</h2>
+              <p className="section-subtitle">Filter movies and series by release year.</p>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+            <button
+              key="all-years"
+              type="button"
+              className={`chip ${year === null ? "chip-active" : ""}`}
+              onClick={() => setYear(null)}
+              aria-pressed={year === null}
+            >
+              All Years
+            </button>
+            {availableYears.map((y) => (
+              <button
+                key={y}
+                type="button"
+                className={`chip ${year === y ? "chip-active" : ""}`}
+                onClick={() => setYear(y)}
+                aria-pressed={year === y}
+              >
+                {y}
+              </button>
+            ))}
+            {hasFilters && (
+              <button className="btn btn-secondary btn-sm" onClick={clear}>
+                Reset All Filters
+              </button>
+            )}
+          </div>
+        </section>
+
         {/* Type + clear */}
         <section className="section">
           <div className="section-header">
@@ -108,15 +187,25 @@ function DiscoverContent() {
 
         <section className="section">
           <div className="section-header">
-            <div><h2 className="section-title">Results</h2>{data && <p className="section-subtitle">{data.total} titles</p>}</div>
+            <div><h2 className="section-title">Results</h2>{data && <p className="section-subtitle">{filteredResults.length} titles</p>}</div>
           </div>
-          {loading && <div className="card-grid">{Array.from({ length: 10 }).map((_, i) => <div key={i} className="skeleton skeleton-poster" />)}</div>}
-          {!loading && data?.results.length === 0 && (
-            <div className="empty-state"><h3>No Results</h3><p>No titles match these filters. Try clearing filters or installing more add-ons.</p><button className="btn btn-primary" onClick={clear}>Clear Filters</button></div>
-          )}
-          {!loading && data && data.results.length > 0 && (
+          {loading && (
             <div className="card-grid">
-              {data.results.map((item) => <MovieCard key={`${item.type}:${item.id}`} item={item} showMeta />)}
+              {Array.from({ length: 10 }).map((_, i) => <div key={i} className="skeleton skeleton-poster" />)}
+            </div>
+          )}
+          {!loading && filteredResults.length === 0 && (
+            <div className="empty-state">
+              <h3>No Results</h3>
+              <p>{year !== null ? `No titles from year ${year}. Try clearing the year filter.` : "No titles match these filters. Try clearing filters or installing more add-ons."}</p>
+              {year !== null && (
+                <button className="btn btn-secondary btn-sm" onClick={clear}>Reset Year Filter</button>
+              )}
+            </div>
+          )}
+          {!loading && filteredResults.length > 0 && (
+            <div className="card-grid">
+              {filteredResults.map((item) => <MovieCard key={`${item.type}:${item.id}`} item={item} showMeta />)}
             </div>
           )}
         </section>

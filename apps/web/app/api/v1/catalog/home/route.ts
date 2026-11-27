@@ -6,7 +6,7 @@ import { fetchAddonCatalog } from "@/lib/addon-client";
 import type { AddonCatalogItem } from "@/lib/addon-client";
 import { decryptUrl } from "@/lib/addon-crypto";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
-import { catalogIdentity, catalogItemScore } from "@/lib/catalog";
+import { catalogIdentity, catalogItemScore, mergeCatalogItems, CatalogSourceRef } from "@/lib/catalog";
 import { PLATFORMS, getPlatformFromCatalogId, sortTopRated, isAnime, isDocumentary, normalizeGenres, ALL_GENRES, isValidImdbRating } from "@/lib/catalog-categories";
 
 export async function GET(req: NextRequest) {
@@ -28,6 +28,13 @@ export async function GET(req: NextRequest) {
   type HomeItem = AddonCatalogItem & { addonId?: string; addonName?: string; platform?: string; catalogId?: string };
   const allItems: HomeItem[] = [];
 
+  const trendingCatalogIds = ["trending-movies", "trending-series"];
+  const popularMovieCatalogIds = ["popular-movies"];
+  const popularSeriesCatalogIds = ["popular-series"];
+  const trendingMovies: HomeItem[] = [];
+  const popularMovies: HomeItem[] = [];
+  const popularSeries: HomeItem[] = [];
+
   for (const addon of addons) {
     let manifestUrl: string;
     try {
@@ -42,13 +49,27 @@ export async function GET(req: NextRequest) {
     }
 
     const catalogs = result.manifest.catalogs || [];
+
     for (const cat of catalogs) {
       try {
         const items = await fetchAddonCatalog(manifestUrl, result.manifest, cat.type, cat.id);
         const platform = getPlatformFromCatalogId(cat.id);
         for (const item of items) {
           const normalizedGenres = normalizeGenres(item.genres);
-          allItems.push({ ...item, genres: normalizedGenres, addonId: addon.id, addonName: addon.name, platform: platform || undefined, catalogId: cat.id });
+          const enrichedItem: HomeItem = {
+            ...item,
+            genres: normalizedGenres,
+            addonId: addon.id,
+            addonName: addon.name,
+            platform: platform || undefined,
+            catalogId: cat.id,
+          };
+          allItems.push(enrichedItem);
+
+          // Populate sections from their dedicated add-on catalogs (no fabricated ordering)
+          if (trendingCatalogIds.includes(cat.id)) trendingMovies.push(enrichedItem);
+          else if (popularMovieCatalogIds.includes(cat.id)) popularMovies.push(enrichedItem);
+          else if (popularSeriesCatalogIds.includes(cat.id)) popularSeries.push(enrichedItem);
         }
       } catch (err: unknown) {
         console.error(`[catalog-home] Failed to fetch catalog from "${addon.name}" (${cat.type}:${cat.id}):`, err instanceof Error ? err.message : String(err));
@@ -57,15 +78,9 @@ export async function GET(req: NextRequest) {
   }
 
   // Deduplicate globally by content identity (type:id), keeping richest metadata
-  const best = new Map<string, HomeItem>();
-  for (const item of allItems) {
-    const key = catalogIdentity(item);
-    const previous = best.get(key);
-    if (!previous || catalogItemScore(item) > catalogItemScore(previous)) {
-      best.set(key, item);
-    }
-  }
-  const uniqueItems = Array.from(best.values());
+  // while preserving platform/catalog source attribution for streaming services.
+  const uniqueItems = mergeCatalogItems(allItems);
+
 
   // Helpers
   const isMovie = (i: HomeItem) => i.type === "movie" || i.type === "film";
@@ -95,9 +110,10 @@ const homeData: HomeDataShape = {
     documentary: [],
   };
 
-  homeData.trending = uniqueItems.slice(0, 20);
-  homeData.popularMovies = uniqueItems.filter(isMovie).slice(0, 20);
-  homeData.popularSeries = uniqueItems.filter(isSeries).slice(0, 20);
+  homeData.trending = mergeCatalogItems(trendingMovies).slice(0, 20);
+  homeData.popularMovies = mergeCatalogItems(popularMovies).slice(0, 20);
+  homeData.popularSeries = mergeCatalogItems(popularSeries).slice(0, 20);
+
 
   // Top rated by IMDb rating (only items with rating)
   homeData.topRatedMovies = sortTopRated(uniqueItems.filter(isMovie).filter(isValidImdbRating)).slice(0, 20);
@@ -105,7 +121,7 @@ const homeData: HomeDataShape = {
 
   // Streaming services: group by platform (only platforms with content)
   for (const platformKey of Object.keys(PLATFORMS)) {
-    const items = uniqueItems.filter(i => i.platform === platformKey);
+    const items = uniqueItems.filter(i => ((i.platforms as string[]) || []).includes(platformKey));
     if (items.length > 0) homeData.streamingServices[platformKey] = items;
   }
 

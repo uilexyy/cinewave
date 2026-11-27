@@ -6,7 +6,7 @@ import { fetchAddonCatalog } from "@/lib/addon-client";
 import type { AddonCatalogItem } from "@/lib/addon-client";
 import { decryptUrl } from "@/lib/addon-crypto";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
-import { catalogItemScore } from "@/lib/catalog";
+import { mergeCatalogItems } from "@/lib/catalog";
 import { PLATFORMS, getPlatformFromCatalogId, normalizeGenres, sortTopRated, ALL_GENRES, isValidImdbRating } from "@/lib/catalog-categories";
 
 export async function GET(req: NextRequest) {
@@ -56,14 +56,8 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Dedup
-  const best = new Map<string, Item>();
-  for (const item of allItems) {
-    const key = `${item.type}:${item.id}`;
-    const prev = best.get(key);
-    if (!prev || catalogItemScore(item) > catalogItemScore(prev)) best.set(key, item);
-  }
-  let items = Array.from(best.values());
+  // Dedup - preserve platform attribution via mergeCatalogItems
+  let items = mergeCatalogItems(allItems);
 
   // Type filter
   if (type === "movie") items = items.filter(i => i.type === "movie" || i.type === "film");
