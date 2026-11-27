@@ -73,6 +73,18 @@ test('switching sources works', async ({ page }) => {
 
 test('subtitle selector appears when tracks provided', async ({ page }) => {
   await page.route('**/api/v1/playback/**', async (route) => {
+    const reqUrl = route.request().url();
+    if (reqUrl.includes('subtitle-content')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: { content: 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nSubtitle test\n', format: 'vtt' },
+        }),
+      });
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -83,10 +95,22 @@ test('subtitle selector appears when tracks provided', async ({ page }) => {
     });
   });
   await page.goto(`/player?src=${encodeURIComponent(MP4)}&titleId=test&title=Sub Test`);
-  const select = page.locator('select');
-  await expect(select).toBeVisible({ timeout: 15000 });
-  await expect(select).toContainText('Off');
-  await expect(select).toContainText('en');
+  const subtitleBtn = page.locator('[aria-label="Subtitles"]');
+  await expect(subtitleBtn).toBeVisible({ timeout: 15000 });
+  await subtitleBtn.click();
+  const subtitlePanel = page.locator('.player-subtitle-panel');
+  await expect(subtitlePanel).toBeVisible({ timeout: 15000 });
+  await expect(subtitlePanel).toContainText('Off');
+  await expect(subtitlePanel).toContainText('English');
+
+  // select the English subtitle
+  await subtitlePanel.getByText('English').click();
+  // wait for overlay to render cue at ~1.5s
+  const video = page.locator('video');
+  await video.evaluate((v: HTMLVideoElement) => { v.currentTime = 1.5; });
+  const overlay = page.locator('.player-subtitle-overlay');
+  await expect(overlay).toBeVisible({ timeout: 15000 });
+  await expect(overlay).toContainText('Subtitle test');
 });
 
 test('invalid protocol URL is rejected', async ({ page }) => {

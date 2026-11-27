@@ -57,8 +57,9 @@ export interface AddonStream {
 
 export interface AddonSubtitle {
   id?: string;
-  url: string;
+  url?: string;
   lang: string;
+  content?: string;
 }
 
 export interface PlaybackSubtitle {
@@ -70,7 +71,7 @@ export interface PlaybackSubtitle {
   source?: string;
 }
 
-function getBaseUrl(manifestUrl: string): string {
+export function getBaseUrl(manifestUrl: string): string {
   return manifestUrl.replace(/\/manifest\.json$/i, "").replace(/\/$/, "");
 }
 
@@ -168,7 +169,22 @@ export async function fetchAddonSubtitles(
   const res = await fetchJson(url);
   if (!res.ok) return [];
   const subs = res.data?.subtitles as AddonSubtitle[] | undefined;
-  return Array.isArray(subs) ? subs : [];
+  if (!Array.isArray(subs)) return [];
+  return subs
+    .filter((s): s is AddonSubtitle => !!s && typeof s === "object")
+    .map((s) => {
+      const rawUrl = typeof s.url === "string" ? s.url.trim() : "";
+      let resolvedUrl = rawUrl;
+      if (rawUrl && !/^https?:\/\//i.test(rawUrl)) {
+        try {
+          resolvedUrl = new URL(rawUrl, `${base}/`).toString();
+        } catch {
+          resolvedUrl = rawUrl;
+        }
+      }
+      return { ...s, url: resolvedUrl };
+    })
+    .filter((s) => (typeof s.url === "string" && s.url.length > 0) || (typeof s.content === "string" && s.content.trim().length > 0));
 }
 
 export function isSafeStream(stream: AddonStream): boolean {
