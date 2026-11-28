@@ -5,6 +5,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/services/api";
 import { clearPendingPlayback } from "@/lib/playback-store";
 import { normalizeQuality, QUALITY_OPTIONS, qualityLabel, type QualityBucket } from "@/lib/quality-normalize";
+import { normalizeAudioLanguage, pickAudioTrack, type AudioLangPref, type AudioTrackInfo } from "@/lib/audio-track";
 
 interface PlayerSubtitle {
   id: string;
@@ -134,10 +135,26 @@ function PlayerContent() {
   const [muted, setMuted] = useState(true);
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [activePanel, setActivePanel] = useState<"subtitle" | "subtitleSettings" | "sources" | null>(null);
+  const [activePanel, setActivePanel] = useState<"subtitle" | "subtitleSettings" | "sources" | "audio" | null>(null);
   const [qualityFilter, setQualityFilter] = useState<QualityBucket | "All">("All");
 
   const [subtitleTracks, setSubtitleTracks] = useState<PlayerSubtitle[]>([]);
+  const [audioTracks, setAudioTracks] = useState<AudioTrackInfo[]>([]);
+  const [selectedAudio, setSelectedAudio] = useState<number>(-1);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const [audioError, setAudioError] = useState("");
+  const [audioUnsupported, setAudioUnsupported] = useState(false);
+  const [audioCapability, setAudioCapability] = useState<"hls" | "native" | "none">("none");
+  const [audioLangPref, setAudioLangPref] = useState<AudioLangPref>(() => {
+    if (typeof window === "undefined") return "auto";
+    try {
+      const v = window.localStorage.getItem("cinewave:audioLangPref");
+      if (v === "id" || v === "en" || v === "auto") return v;
+      return "auto";
+    } catch {
+      return "auto";
+    }
+  });
   const [selectedSub, setSelectedSub] = useState<string>("off");
   const [subtitleError, setSubtitleError] = useState("");
   const [isLoadingSubtitles, setIsLoadingSubtitles] = useState(false);
@@ -265,6 +282,66 @@ function PlayerContent() {
     return () => { cancelled = true; };
   }, [titleId, type, addonId]);
 
+  function applyAudioPreference(tracks: AudioTrackInfo[], h?: { audioTrack: number } | null) {
+    const id = pickAudioTrack(tracks, audioLangPref);
+    if (id < 0) return;
+    if (h && h.audioTrack !== id) h.audioTrack = id;
+    setSelectedAudio(id);
+  }
+
+  function readNativeAudioTracks(v: HTMLVideoElement) {
+    const list = (v as unknown as { audioTracks?: ArrayLike<{ label?: string; language?: string; enabled: boolean }> }).audioTracks;
+    if (!list) {
+      setAudioCapability("none");
+      setAudioTracks([]);
+      setSelectedAudio(-1);
+      setAudioUnsupported(true);
+      setAudioLoading(false);
+      return;
+    }
+    const tracks: AudioTrackInfo[] = [];
+    let active = -1;
+    for (let i = 0; i < list.length; i++) {
+      const t = list[i];
+      tracks.push({ id: i, name: t.label || t.language || "Unknown Language", lang: t.language });
+      if (t.enabled) active = i;
+    }
+    setAudioCapability("native");
+    setAudioUnsupported(false);
+    setAudioTracks(tracks);
+    if (active < 0 && tracks.length > 0) active = pickAudioTrack(tracks, audioLangPref);
+    setSelectedAudio(active);
+    setAudioLoading(false);
+  }
+
+  function setupNativeAudio(v: HTMLVideoElement) {
+    setAudioLoading(true);
+    setAudioUnsupported(false);
+    const onMeta = () => readNativeAudioTracks(v);
+    v.addEventListener("loadedmetadata", onMeta, { once: true });
+    queueMicrotask(() => {
+      if ((v as unknown as { audioTracks?: unknown }).audioTracks !== undefined) onMeta();
+    });
+  }
+
+  function switchAudioTrack(id: number) {
+    if (id < 0) return;
+    const h = hlsRef.current as { audioTrack: number } | null;
+    if (h) {
+      if (h.audioTrack !== id) h.audioTrack = id;
+      setSelectedAudio(id);
+      return;
+    }
+    const v = videoRef.current;
+    const list = v && (v as unknown as { audioTracks?: ArrayLike<{ enabled: boolean }> }).audioTracks;
+    if (list && list[id]) {
+      for (let i = 0; i < list.length; i++) list[i].enabled = i === id;
+      setSelectedAudio(id);
+    } else {
+      setAudioError("Audio track switching is not supported by this browser/source.");
+    }
+  }
+
   // Playback init
   useEffect(() => {
     const video = videoRef.current;
@@ -286,6 +363,15 @@ function PlayerContent() {
       if (!validation.ok) {
         if (!cancelled) { setError(validation.error || "URL stream tidak valid"); setLoading(false); }
         return;
+      }
+
+      if (!cancelled) {
+        setAudioTracks([]);
+        setSelectedAudio(-1);
+        setAudioError("");
+        setAudioUnsupported(false);
+        setAudioCapability("none");
+        setAudioLoading(false);
       }
 
       // subtitle metadata
@@ -332,6 +418,7 @@ function PlayerContent() {
         v.src = src;
         v.load();
         v.play().catch(() => {});
+        setupNativeAudio(v);
         return;
       }
       const nativeSupported = v.canPlayType("application/vnd.apple.mpegurl") !== "";
@@ -340,6 +427,7 @@ function PlayerContent() {
         v.src = src;
         v.load();
         v.play().catch(() => {});
+        setupNativeAudio(v);
         return;
       }
       if (!src.startsWith("http://") && !src.startsWith("https://")) {
@@ -354,15 +442,51 @@ function PlayerContent() {
             loadSource: (s: string) => void;
             attachMedia: (v: HTMLVideoElement) => void;
             destroy: () => void;
-            on: (t: string, cb: (evt: unknown, data: { fatal?: boolean; type?: string }) => void) => void;
+            on: (t: string, cb: (evt: unknown, data: any) => void) => void;
+            audioTracks: Array<{ id: number; name: string; lang?: string; default?: boolean; autoselect?: boolean }>;
+            audioTrack: number;
           };
           const h = new HlsCtor();
           hlsRef.current = h;
+          if (!cancelled) { setAudioCapability("hls"); setAudioUnsupported(false); setAudioLoading(true); }
           h.on("error", (_event, data) => {
             if (data?.fatal && !cancelled) setError(`HLS error: ${data.type || "unknown"}`);
           });
+          h.on("hlsAudioTracksUpdated", (_event, data) => {
+            if (cancelled) return;
+            const tracks = (data?.audioTracks || h.audioTracks || []).map((t: any, idx: number) => ({
+              id: typeof t.id === "number" ? t.id : idx,
+              name: t.name || t.lang || "Unknown Language",
+              lang: t.lang,
+            }));
+            setAudioTracks(tracks);
+            setAudioLoading(false);
+            // apply preference
+            applyAudioPreference(tracks, h);
+          });
+          h.on("hlsAudioTrackSwitched", (_event, data) => {
+            if (cancelled) return;
+            const id = typeof data?.id === "number" ? data.id : h.audioTrack;
+            setSelectedAudio(id);
+          });
           h.on("manifestParsed", () => {
             if (!cancelled) { v.play().catch(() => {}); setLoading(false); }
+            // fallback if no audioTracksUpdated fired
+            queueMicrotask(() => {
+              if (cancelled) return;
+              const tracks = (h.audioTracks || []).map((t: any, idx: number) => ({
+                id: typeof t.id === "number" ? t.id : idx,
+                name: t.name || t.lang || "Unknown Language",
+                lang: t.lang,
+              }));
+              if (tracks.length > 0) {
+                setAudioTracks((prev) => (prev.length ? prev : tracks));
+                setAudioLoading(false);
+                if (selectedAudio < 0) applyAudioPreference(tracks, h);
+              } else {
+                setAudioLoading(false);
+              }
+            });
           });
           v.crossOrigin = "anonymous";
           h.loadSource(src);
@@ -437,6 +561,13 @@ function PlayerContent() {
       window.localStorage.setItem(SUBTITLE_STYLE_STORAGE_KEY, JSON.stringify(subtitleStyle));
     } catch {}
   }, [subtitleStyle]);
+
+  // Persist audio language preference
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("cinewave:audioLangPref", audioLangPref);
+    } catch {}
+  }, [audioLangPref]);
 
   // Set TextTrack mode - hidden for selected (custom overlay), disabled for others
   useEffect(() => {
@@ -767,6 +898,10 @@ function PlayerContent() {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 15h4M13 15h4M7 11h10"/></svg>
               </button>
 
+              <button className="player-ctrl-btn" onClick={() => setActivePanel((p) => (p === "audio" ? null : "audio"))} aria-label="Audio">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+              </button>
+
               <button className="player-ctrl-btn" onClick={() => setActivePanel((p) => (p === "subtitleSettings" ? null : "subtitleSettings"))} aria-label="Subtitle Settings">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
               </button>
@@ -887,6 +1022,58 @@ function PlayerContent() {
             {selectedSub !== "off" && selectedTrack && (
               <div className="player-setting-hint" style={{ color: "var(--success)" }}>Active</div>
             )}
+          </div>
+        )}
+
+        {activePanel === "audio" && (
+          <div className="player-floating-panel player-audio-panel">
+            <div className="player-panel-header">
+              <span>Audio</span>
+              <button className="player-panel-close" onClick={() => setActivePanel(null)} aria-label="Close">×</button>
+            </div>
+            <div className="player-setting-group">
+              <div className="player-setting-label">Preferred Language</div>
+              <div className="player-setting-options">
+                {(["auto", "id", "en"] as AudioLangPref[]).map((p) => (
+                  <button
+                    key={p}
+                    className={`player-option ${audioLangPref === p ? "active" : ""}`}
+                    onClick={() => setAudioLangPref(p)}
+                  >
+                    {p === "auto" ? "Auto" : p === "id" ? "Indonesian" : "English"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="player-setting-group">
+              <div className="player-setting-label">Audio Tracks</div>
+              {audioLoading ? (
+                <span className="player-setting-hint">Loading audio tracks…</span>
+              ) : audioUnsupported ? (
+                <span className="player-setting-hint">Audio track selection is not supported by this source or browser.</span>
+              ) : audioTracks.length === 0 ? (
+                <span className="player-setting-hint">No audio track information available for this source.</span>
+              ) : (
+                <div className="player-setting-options">
+                  <button className={`player-option ${selectedAudio === -1 ? "active" : ""}`} onClick={() => { setSelectedAudio(-1); setAudioUnsupported(false); }}>
+                    Auto (source default)
+                  </button>
+                  {audioTracks.map((t) => (
+                    <button key={t.id} className={`player-option ${selectedAudio === t.id ? "active" : ""}`} onClick={() => switchAudioTrack(t.id)}>
+                      {normalizeAudioLanguage(t.lang) === "en" ? "English" : normalizeAudioLanguage(t.lang) === "id" ? "Indonesian" : t.name}
+                      {t.lang && t.lang !== t.name ? ` (${t.lang})` : ""}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {audioError && <span className="player-setting-error">{audioError}</span>}
+              {selectedAudio >= 0 && audioTracks.some((t) => t.id === selectedAudio) && (
+                <div className="player-setting-hint" style={{ color: "var(--success)" }}>Active</div>
+              )}
+            </div>
+            <div className="player-setting-hint">
+              Detection: {audioCapability === "hls" ? "HLS.js" : audioCapability === "native" ? "Native browser API" : "Unavailable"}
+            </div>
           </div>
         )}
 
