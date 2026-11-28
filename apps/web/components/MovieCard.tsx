@@ -19,7 +19,7 @@ export interface MovieCardData {
   countries?: string[];
   countryCode?: string;
   originCountry?: string | string[];
-  productionCountries?: any[];
+  productionCountries?: Array<string | { name?: string; iso_3166_1?: string; code?: string }>;
 }
 
 interface Props {
